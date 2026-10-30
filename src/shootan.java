@@ -10,6 +10,7 @@ public class shootan extends MIDlet implements CommandListener {
     Random rand = new Random();
 
     Command join = new Command("Connect", Command.OK, 1);
+    Command offline = new Command("Play offline", Command.ITEM, 2);
 
     TextField username = new TextField("Player name", "Player-" + Math.abs(rand.nextLong()) % 1000, 32, TextField.ANY);
     TextField hostname = new TextField("Server IP", "sffempire.ru", 256, TextField.ANY);
@@ -22,6 +23,7 @@ public class shootan extends MIDlet implements CommandListener {
         f.append(username);
         f.append(hostname);
         f.addCommand(join);
+        f.addCommand(offline);
         f.setCommandListener(this);
 
         display.setCurrent(f);
@@ -38,14 +40,18 @@ public class shootan extends MIDlet implements CommandListener {
     }
 
     public void commandAction(Command command, Displayable displayable) {
-        if (command == join) {
-            Display.getDisplay(this).setCurrent(Game.getInstance());
-            try {
-                Game.getInstance().start(username.getString(), hostname.getString());
-            } catch (IOException e) {
-                System.out.println(e.toString());
-                throw new RuntimeException();
+        Display.getDisplay(this).setCurrent(Game.getInstance());
+
+        try {
+            if (command == join) {
+                Game.getInstance().start(username.getString(), hostname.getString(), false);
             }
+
+            if (command == offline) {
+                Game.getInstance().start(username.getString(), hostname.getString(), true);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

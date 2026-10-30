@@ -1,20 +1,30 @@
 import gzip.*;
 
 import javax.microedition.lcdui.Graphics;
-import javax.microedition.lcdui.Image;
 import java.io.*;
 import java.util.Vector;
 
 public class Level {
     public static int LEVEL_SIZE = 128;
-    private byte[] foreground;
-    private byte[] background;
+    private final byte[] foreground;
+    private final byte[] background;
 
     public static byte COLLECTIBLE_NONE = 0;
     public static byte COLLECTIBLE_SHOTGUN = 1;
     public static byte COLLECTIBLE_SNIPER = 2;
     public static byte COLLECTIBLE_MEDKIT = 3;
     public static byte COLLECTIBLE_GRENADE = 4;
+
+    public static byte BLOCK_AIR = 0;
+    public static byte BLOCK_GRASS = 1;
+    public static byte BLOCK_DIRT = 2;
+    public static byte BLOCK_BRICK = 3;
+    public static byte BLOCK_LADDER = 4;
+    public static byte BLOCK_STONE_BRICK = 5;
+    public static byte BLOCK_GLASS = 6;
+    public static byte BLOCK_LEAVES = 7;
+    public static byte BLOCK_WOOD = 8;
+    public static byte BLOCK_BOX = 9;
 
     public static class Collectible {
         public byte type;
@@ -36,17 +46,8 @@ public class Level {
         }
     }
 
-    private Collectible[] collectibles;
+    private final Collectible[] collectibles;
     private final Vector grenades = new Vector();
-
-    static private int readUI32LE(DataInputStream in) throws IOException {
-        byte b0 = in.readByte();
-        byte b1 = in.readByte();
-        byte b2 = in.readByte();
-        byte b3 = in.readByte();
-
-        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-    }
 
     private Level(byte[] background, byte[] foreground, Collectible[] collectibles) {
         this.background = background;
@@ -69,12 +70,12 @@ public class Level {
             throw new RuntimeException("The ENet packet is not a level!");
         }
 
-        long uncompressed = 0;
+        long uncompressed;
 
         System.out.println("Parsing level from ENet packet...");
 
         // Foreground
-        int compressedFgSize = Level.readUI32LE(in) - 2;
+        int compressedFgSize = Utils.readIntLE(in) - 2;
         System.out.println("compressed FG size: "+compressedFgSize);
 
         in.skip(2);
@@ -89,7 +90,7 @@ public class Level {
         System.out.println(uncompressed+" bytes uncompressed");
 
         // Background
-        int compressedBgSize = Level.readUI32LE(in) - 2;
+        int compressedBgSize = Utils.readIntLE(in) - 2;
         System.out.println("compressed BG size: "+compressedBgSize);
 
         in.skip(2);
@@ -104,7 +105,7 @@ public class Level {
         System.out.println(uncompressed+" bytes uncompressed");
 
         // Collectibles
-        int collectibleCount = Level.readUI32LE(in);
+        int collectibleCount = Utils.readIntLE(in);
         System.out.println("Collectible count: "+collectibleCount);
 
         Collectible[] collectibles = new Collectible[collectibleCount];
@@ -122,6 +123,32 @@ public class Level {
                 uncompressedForeground.toByteArray(),
                 collectibles
         );
+    }
+
+    public static Level createFromRes(String name) throws IOException {
+        InputStream stream = Game.getInstance().getClass().getResourceAsStream(name);
+
+        byte[] foreground = new byte[LEVEL_SIZE*LEVEL_SIZE];
+        stream.read(foreground);
+
+        byte[] background = new byte[LEVEL_SIZE*LEVEL_SIZE];
+        stream.read(background);
+
+        int collectibleCount = Utils.readIntLE(stream);
+        Collectible[] collectibles = new Collectible[collectibleCount];
+
+        for (int i = 0; i < collectibleCount; i++) {
+            float x = Utils.readFloatLE(stream);
+            float y = Utils.readFloatLE(stream);
+            byte type = (byte) stream.read();
+
+            Collectible coll = new Collectible(x, y, type);
+            coll.respawnTime = (int)(Utils.readFloatLE(stream) * 1000);
+            coll.newY = Utils.readFloatLE(stream);
+            coll.isSent = stream.read() == 0x01;
+        }
+
+        return new Level(background, foreground, collectibles);
     }
 
     public void render(Graphics g, int offX, int offY, int width, int height) {
@@ -152,11 +179,11 @@ public class Level {
 
     public void movePlayer(Game.Player player) {
         // X
-        int minX = Math.min(player.x, player.x + player.speedX) >> 3;
-        int maxX = (Math.max(player.x, player.x + player.speedX) + 7) >> 3;
+        int minX = (int)Math.min(player.x, player.x + player.speedX);
+        int maxX = (int)(Math.max(player.x, player.x + player.speedX) + 1);
 
-        int minY = player.y >> 3;
-        int maxY = (player.y + 7) >> 3;
+        int minY = (int)player.y;
+        int maxY = (int)(player.y + 1);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -167,8 +194,8 @@ public class Level {
                 if (foreground[idx] == 0 || foreground[idx] == 4) continue;
 
                 player.speedX = clipX(
-                        xx * 8, yy * 8, 8, 8,
-                        player.x, player.y, 8, 8,
+                        xx, yy, 1, 1,
+                        player.x, player.y, 1, 1,
                         player.speedX
                 );
             }
@@ -177,11 +204,11 @@ public class Level {
         player.x += player.speedX;
 
         // Y
-        minX = player.x >> 3;
-        maxX = (player.x + 7) >> 3;
+        minX = (int)player.x;
+        maxX = (int)(player.x + 1);
 
-        minY = Math.min(player.y, player.y + player.speedY) >> 3;
-        maxY = (Math.max(player.y, player.y + player.speedY) + 7) >> 3;
+        minY = (int)Math.min(player.y, player.y + player.speedY);
+        maxY = (int)(Math.max(player.y, player.y + player.speedY) + 1);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -192,8 +219,8 @@ public class Level {
                 if (foreground[idx] == 0 || foreground[idx] == 4) continue;
 
                 player.speedY = clipY(
-                        xx * 8, yy * 8, 8, 8,
-                        player.x, player.y, 8, 8,
+                        xx, yy, 1, 1,
+                        player.x, player.y, 1, 1,
                         player.speedY
                 );
             }
@@ -202,37 +229,40 @@ public class Level {
         player.y += player.speedY;
     }
 
-    public static int clipX(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2, int xa) {
+    public byte getBlockFG(int x, int y) {
+        if (y >= LEVEL_SIZE) return 0;
+        if (x >= LEVEL_SIZE) return 0;
+
+        return this.foreground[y * LEVEL_SIZE + x];
+    }
+
+    public static float clipX(float x1, float y1, float w1, float h1, float x2, float y2, float w2, float h2, float xa) {
         if (y2 + h2 <= y1 || y2 >= y1 + h1) {
             return xa;
         }
 
         if (xa > 0 && x2 + w2 <= x1) {
-            int dx = x1 - (x2 + w2);
-            if (dx < xa) xa = dx;
+            xa = Math.min(x1 - (x2 + w2), xa);
         }
 
         if (xa < 0 && x2 >= x1 + w1) {
-            int dx = (x1 + w1) - x2;
-            if (dx > xa) xa = dx;
+            xa = Math.max((x1 + w1) - x2, xa);
         }
 
         return xa;
     }
 
-    public static int clipY(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2, int ya) {
+    public static float clipY(float x1, float y1, float w1, float h1, float x2, float y2, float w2, float h2, float ya) {
         if (x2 + w2 <= x1 || x2 >= x1 + w1) {
             return ya;
         }
 
         if (ya > 0 && y2 + h2 <= y1) {
-            int dy = y1 - (y2 + h2);
-            if (dy < ya) ya = dy;
+            ya = Math.min(y1 - (y2 + h2), ya);
         }
 
         if (ya < 0 && y2 >= y1 + h1) {
-            int dy = (y1 + h1) - y2;
-            if (dy > ya) ya = dy;
+            ya = Math.max((y1 + h1) - y2, ya);
         }
 
         return ya;
