@@ -53,13 +53,11 @@ public class Timer {
         long now = System.currentTimeMillis();
         long passedMs = now - this.lastTime;
 
-        if (passedMs == 0) return;
+        if (passedMs <= 0) return;
 
         // Store nano time of this update
         this.lastTime = now;
 
-        // Maximum and minimum
-        passedMs = Math.max(0, passedMs);
         passedMs = Math.min(MAX_MS_PER_UPDATE, passedMs);
 
         // Calculate fps

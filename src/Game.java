@@ -1,45 +1,16 @@
-import javax.microedition.io.file.ConnectionClosedException;
 import javax.microedition.lcdui.Graphics;
 import javax.microedition.lcdui.game.GameCanvas;
 import javax.microedition.lcdui.game.Sprite;
 
-import enet.ENetClient;
-import enet.ENetEvent;
-import enet.ENetPacket;
-import enet.midp.DatagramTransport;
-
 import java.io.*;
 import java.util.Enumeration;
-import java.util.Hashtable;
 import java.util.Random;
+import java.util.Vector;
 
 public class Game extends GameCanvas {
     private static Game game;
 
-    private ENetClient c;
     private Graphics g;
-
-    static final int PACKET_AUTH = 0;
-    static final int PACKET_ADDPLAYER = 1;
-    static final int PACKET_MOVE = 2;
-    static final int PACKET_REMOVEPLAYER = 3;
-    static final int PACKET_LOADWORLD = 4;
-    static final int PACKET_ADDBULLET = 5;
-    static final int PACKET_REMOVEBULLET = 6;
-    static final int PACKET_SETHP = 7;
-    static final int PACKET_ADDWEAPON = 8;
-    static final int PACKET_UPDATEWEAPON = 9;
-    static final int PACKET_LEVEL = 10;
-    static final int PACKET_UPDATECOLLECTIBLE = 11;
-    static final int PACKET_SETSCORE = 12;
-    static final int PACKET_UPDATEANGLE = 13;
-    static final int PACKET_MESSAGE = 14;
-    static final int PACKET_DAMAGE = 15;
-    static final int PACKET_ROUNDEND = 16;
-    static final int PACKET_THROWGRENADE = 17;
-    static final int PACKET_ADDGRENADE = 18;
-    static final int PACKET_REMOVEGRENADE = 19;
-    static final int PACKET_REVIVE = 20;
 
     boolean inputClimbUp = false;
     boolean inputClimbDown = false;
@@ -51,56 +22,46 @@ public class Game extends GameCanvas {
 
     long ticks = 0;
 
-    public static class RemotePlayer {
+    public static class Player extends Entity {
         public String username;
 
-        public int x = 0;
-        public int y = 0;
-        public byte hp = 100;
-        public byte hat;
-        public byte weapon;
-        public boolean isDied = false;
-        public int transform;
-
-        public RemotePlayer(String username, int x, int y, byte hp, byte hat, byte weapon, boolean isDied) {
-            this.username = username;
-            this.x = x;
-            this.y = y;
-            this.hp = hp;
-            this.hat = hat;
-            this.weapon = weapon;
-            this.isDied = isDied;
-        }
-    }
-
-    public static class Player {
-        public String username;
-
-        public float x = 0;
-        public float y = 0;
         public double angle = 0;
 
         public int id;
         public byte hat = 0;
         public byte weapon = 0;
-        public byte hp = 100;
+        public int hp = 100;
         public boolean onGround = false;
         public boolean onLadder = false;
 
-        public float speedX = 0;
-        public float speedY = 0;
+        public boolean[] weapons = new boolean[3];
+        public boolean grenade = false;
 
         public boolean isDied = false;
 
         public int coyoteTime = 0;
-
-        public int pixelsX() { return (int)(this.x * 8.f); }
-        public int pixelsY() { return (int)(this.y * 8.f); }
     };
 
+    public Multiplayer multiplayer = null;
     public Level lvl = null;
-    public Player player = null;
-    public Hashtable remotes = new Hashtable();
+    public Player player = new Player();
+    public Timer timer = null;
+
+    public static class Bullet extends Entity {
+        public int id;
+        public float angle;
+        public int ownerId;
+        public int weaponId;
+    };
+
+    public Vector bullets = new Vector();
+
+    public static class Grenade extends Entity {
+        public int id;
+        public int lifeTime;
+    }
+
+    private final Vector grenades = new Vector();
 
     private Game() {
         super(false);
@@ -117,70 +78,26 @@ public class Game extends GameCanvas {
     public void start(String playerName, String host, boolean offline) throws IOException {
         g = getGraphics();
 
-        if (!offline) {
-            int port = 6890;
-            { // make url and port
-                int idx = host.indexOf(":");
-
-                if (idx > 0) {
-                    port = Integer.parseInt(host.substring(idx + 1));
-                    host = host.substring(0, idx);
-                }
+        try {
+            if (!offline) {
+                drawConnectingScreen("Connecting to " + host + "...");
+                multiplayer = new Multiplayer(host, playerName);
+            } else {
+                // offline mode
+                connectedServer(Level.createFromRes("/world.dat"));
             }
-
-            drawConnectingScreen("Connecting to " + host + ":" + port + "...");
-
-            c = new ENetClient(new DatagramTransport(host, port));
-            c.connect(2, 0);
-            c.setPingInterval(100);
-
-            for (; ; ) {
-                ENetEvent e = c.service(50);
-                if (e == null) continue;
-                if (e.type == ENetEvent.CONNECT) break;
-                if (e.type == ENetEvent.DISCONNECT)
-                    throw new ConnectionClosedException("Cant connect to server"); // TODO: make error screen
-            }
-
-            { // send login packet
-                ByteArrayOutputStream loginPacket = new ByteArrayOutputStream();
-                DataOutputStream out = new DataOutputStream(loginPacket);
-
-                out.writeShort(0);
-                out.write(playerName.getBytes());
-                out.writeByte(0); // null terminator string
-
-                out.flush();
-
-                ENetPacket login = new ENetPacket(loginPacket.toByteArray(), ENetPacket.FLAG_RELIABLE);
-                c.send(0, login.data, ENetPacket.FLAG_RELIABLE);
-            }
+        } catch (Exception e) {
+            // TODO: Error screen
+            System.out.println("Error: " + e.getMessage());
         }
 
         int offX = 0;
         int offY = 0;
 
-        Timer timer = new Timer(60.f);
-
-        if (offline) {
-            lvl = Level.createFromRes("/world.dat");
-            player = new Player();
-            player.x = new Random().nextInt() % Level.LEVEL_SIZE;
-        }
-
         setFullScreenMode(true);
 
         while (true) {
-            if (c != null) {
-                // process 64 packets at once
-                for (int j = 0; j < 64; j++) {
-                    ENetEvent e = c.service(0);
-                    if (e == null) break;
-
-                    if (e.type == ENetEvent.RECEIVE) processPacket(playerName, e.packet);
-                    if (e.type == ENetEvent.DISCONNECT) throw new ConnectionClosedException("Disconnected");
-                }
-            }
+            if (multiplayer != null) multiplayer.update();
 
             // draw bg
             g.setColor(0x040432);
@@ -193,7 +110,44 @@ public class Game extends GameCanvas {
                     this.ticks++;
 
                     if (!player.isDied) {
-                        updatePlayer(lvl);
+                        tickPlayer();
+                    }
+
+                    Enumeration em = bullets.elements();
+
+                    while (em.hasMoreElements()) {
+                        Bullet b = (Bullet)em.nextElement();
+
+                        float prevSpeedX = b.speedX;
+                        float prevSpeedY = b.speedY;
+
+                        lvl.moveEntity(b, 0.3f, 0.2f);
+
+                        boolean shouldDelete =
+                                b.x < 0 || b.x > Level.LEVEL_SIZE || b.y < 0 || b.y > Level.LEVEL_SIZE || prevSpeedX != b.speedX || prevSpeedY != b.speedY;
+
+                        if (shouldDelete) bullets.removeElement(b);
+                    }
+
+                    Enumeration gr = grenades.elements();
+
+                    while (gr.hasMoreElements()) {
+                        Grenade grenade = (Grenade)gr.nextElement();
+
+                        grenade.speedY += 0.02f;
+
+                        float prevSpeedX = grenade.speedX;
+//                        float prevSpeedY = grenade.speedY;
+
+                        lvl.moveEntity(grenade, 0.5f, 0.5f);
+
+                        if (prevSpeedX != grenade.speedX) grenade.speedX *= -1;
+                        if (grenade.speedX > -0.05f && grenade.speedX < 0.05f) grenade.speedX = 0;
+
+                        grenade.speedX *= 0.95f;
+                        grenade.speedY *= 0.99f;
+
+                        if (grenade.x < 0 || grenade.x > Level.LEVEL_SIZE || grenade.y < 0 || grenade.y > Level.LEVEL_SIZE) bullets.removeElement(grenade);
                     }
 
                     offX = player.pixelsX() - getWidth() / 2;
@@ -206,207 +160,182 @@ public class Game extends GameCanvas {
                     if (offY > Level.LEVEL_SIZE * 8 - getHeight()) offY = Level.LEVEL_SIZE * 8 - getHeight();
                 }
 
-                // scary code
-                if (inputClimbUp || inputClimbDown && player.onLadder) {
-                    boolean isLadderAbove = false;
-                    if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x, (int)player.y - 1)) {
-                        isLadderAbove = true;
-                        player.x = (int)player.x;
-                    }
-
-                    if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x + 1, (int)player.y - 1)) {
-                        isLadderAbove = true;
-                        player.x = ((int)player.x) + 1;
-                    }
-
-                    boolean isLadderUnder = false;
-
-                    if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x, ((int)player.y))) {
-                        isLadderUnder = true;
-                        player.x = (int)player.x;
-                    }
-
-                    if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x + 1, (int)(player.y))) {
-                        isLadderUnder = true;
-                        player.x = ((int)player.x) + 1;
-                    }
-
-                    if (isLadderAbove || isLadderUnder) {
-                        player.onLadder = true;
-                        player.speedY = inputClimbUp ? -0.2f : 0.2f;
-                    }
-                }
-
-                if (inputJump) {
-                    if (player.coyoteTime > 0) {
-                        player.speedY = -0.3f;
-                        player.coyoteTime = 0;
-                    } else if (player.onLadder) {
-                        player.onLadder = false;
-                        player.speedY = -0.3f;
-                    }
-                }
-
-                if (!player.onLadder) {
-                    if (inputLeft) {
-                        if (player.speedX > -0.175f) {
-                            player.speedX -= 0.03f;
-                        }
-
-                        if (player.speedX < -0.175f) {
-                            player.speedX = -0.175f;
-                        }
-                    }
-
-                    if (inputRight) {
-                        if (player.speedX < 0.175f) {
-                            player.speedX += 0.03f;
-                        }
-
-                        if (player.speedX > 0.175f) {
-                            player.speedX = 0.175f;
-                        }
-                    }
-                }
-
-                if (inputRotateRight) player.angle += 0.06f;
-                if (inputRotateLeft) player.angle -= 0.06f;
-
                 lvl.render(g, offX, offY, getWidth(), getHeight());
 
-                Enumeration elements = remotes.elements();
+                if (multiplayer != null) {
+                    // draw remote players
+                    for (int i = 0; i < multiplayer.remotePlayers.size(); i++) {
+                        RemotePlayer pl = (RemotePlayer) multiplayer.remotePlayers.elementAt(i);
 
-                // draw remote players
-                while (elements.hasMoreElements()) {
-                    RemotePlayer pl = (RemotePlayer)elements.nextElement();
-                    g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, 0, pl.x - offX, pl.y - offY, 0);
+                        if (pl.x - offX >= 0 && pl.x - offX < getWidth() && pl.y - offY > 0 && pl.y - offY < getHeight()) {
+                            g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, 0, pl.x - offX, pl.y - offY, Graphics.TOP | Graphics.LEFT);
+                        }
+                    }
+
+                    for (int i = 0; i < bullets.size(); i++) {
+                        Bullet bullet = (Bullet) bullets.elementAt(i);
+
+                        if (bullet.x - offX >= 0 && bullet.x - offX < getWidth() && bullet.y - offY > 0 && bullet.y - offY < getHeight()) {
+                            g.drawRegion(Resources.spritesheet, 0, 20, 8, 6, 0, (int) (bullet.x * 8) - offX, (int) (bullet.y * 8) - offY, Graphics.TOP | Graphics.LEFT);
+                        }
+                    }
                 }
 
-                int deg = Math.abs((int)Math.toDegrees(player.angle) % 360);
-                int transform = (deg > 75 && deg < 260) ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
+                double cos = Math.cos(player.angle);
+                double sin = Math.sin(player.angle);
+
+                int cx = player.pixelsX() - offX + 4;
+                int cy = player.pixelsY() - offY + 4;
+
+                int transform = cos < 0 ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
 
                 // draw player
-                g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, transform, player.pixelsX() - offX, player.pixelsY() - offY, 0);
+                if (!player.isDied)
+                    g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, transform, cx - 4, cy - 4, Graphics.TOP | Graphics.LEFT);
 
-                g.setColor(0xFF0000);
-                g.drawLine(
-                        player.pixelsX() - offX + 4,
-                        player.pixelsY() - offY + 4,
-                        player.pixelsX() - offX + (int)(14 * Math.cos(player.angle)),
-                        player.pixelsY() - offY + (int)(14 * Math.sin(player.angle))
-                );
+                int wx;
+
+                switch (player.weapon) {
+                    case 0:
+                        wx = transform == Sprite.TRANS_NONE ? cx : cx - 14;
+                        g.drawRegion(Resources.spritesheet, 0, 0, 14, 8, transform, wx, cy - 4, Graphics.TOP | Graphics.LEFT);
+                        break;
+                    case 1:
+                        wx = transform == Sprite.TRANS_NONE ? cx : cx - 24;
+                        g.drawRegion(Resources.spritesheet, 20, 0, 24, 8, transform, wx, cy - 4, Graphics.TOP | Graphics.LEFT);
+                        break;
+                    case 2:
+                        wx = transform == Sprite.TRANS_NONE ? cx : cx - 32;
+                        g.drawRegion(Resources.spritesheet, 0, 12, 32, 8, transform, wx, cy - 4, Graphics.TOP | Graphics.LEFT);
+                        break;
+                }
+
+                g.drawRegion(Resources.spritesheet, 54, 32, 5, 5, 0, cx + (int)(20 * cos), cy + (int)(20 * sin), Graphics.HCENTER | Graphics.VCENTER);
             }
 
             flushGraphics();
         }
     }
 
-    private void processPacket(String playerName, ENetPacket packet) throws IOException {
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(packet.data));
+    public void addBullet(Bullet bullet) {
+        if (bullets.contains(bullet)) {
+            return;
+        }
 
-        byte header = in.readByte();
+        bullets.addElement(bullet);
+    }
 
-        switch (header) {
-            case PACKET_AUTH: {
-                System.out.println("Collecting players...");
-                byte count = in.readByte();
+    public void removeBullet(int id) {
+        for (int i = 0; i < bullets.size(); i++) {
+            Bullet bullet = (Bullet)bullets.elementAt(i);
+            if (bullet.id == id) bullets.removeElementAt(i);
 
-                for (byte i = 0; i < count; i++) {
-                    int id = Utils.readIntLE(in);
-                    float x = Utils.readFloatLE(in);
-                    float y = Utils.readFloatLE(in);
-
-                    int nameLen = Utils.readShortLE(in);
-                    byte[] name = new byte[nameLen - 1];
-                    in.read(name);
-
-                    byte hp = in.readByte();
-                    byte weapon = in.readByte();
-                    byte hat = in.readByte();
-                    boolean isDied = in.readBoolean();
-
-                    remotes.put(new Integer(id), new RemotePlayer(
-                            new String(name, "UTF-8"),
-                            (int) (x * 8.f),
-                            (int) (y * 8.f),
-                            hp, hat, weapon, isDied
-                    ));
-                }
-
-                break;
-            }
-
-            case PACKET_ADDPLAYER: {
-                float x = Utils.readFloatLE(in);
-                float y = Utils.readFloatLE(in);
-                int id = Utils.readIntLE(in);
-                byte hat = in.readByte();
-
-                System.out.println("x=" + x + "; y=" + y + "; id=" + id + "; hat=" + hat);
-
-                byte[] name = new byte[in.available() - 1];
-                in.read(name);
-
-                String nameStr = new String(name, "UTF-8");
-
-                System.out.println("My name: " + player.username + "; Server name: " + nameStr);
-
-                if (player.username.equals(nameStr)) {
-                    System.out.println("itsme");
-
-                    player.id = id;
-                    player.x = x;
-                    player.y = y;
-                } else {
-                    remotes.put(new Integer(id), new RemotePlayer(
-                            nameStr,
-                            (int) (x * 8.f),
-                            (int) (y * 8.f),
-                            (byte) 100, hat, (byte) 0, false
-                    ));
-                }
-                break;
-            }
-
-            case PACKET_MOVE: {
-                int id = Utils.readIntLE(in);
-                float x = Utils.readFloatLE(in);
-                float y = Utils.readFloatLE(in);
-
-                if (id != player.id) {
-                    RemotePlayer player = (RemotePlayer) remotes.get(new Integer(id));
-                    player.x = (int) (x * 8.f);
-                    player.y = (int) (y * 8.f);
-                } else {
-                    player.x = x;
-                    player.y = y;
-                }
-
-                break;
-            }
-
-            case PACKET_REMOVEPLAYER: {
-                int id = Utils.readIntLE(in);
-                remotes.remove(new Integer(id));
-                break;
-            }
-
-            case PACKET_LEVEL: {
-                lvl = Level.createFromPacket(in);
-                player = new Player();
-                player.username = playerName;
-            }
+            return;
         }
     }
 
-    private void updatePlayer(Level lvl) throws IOException {
+    public void addGrenade(Grenade grenade) {
+        if (bullets.contains(grenade)) {
+            return;
+        }
+
+        bullets.addElement(grenade);
+    }
+
+    public void removeGrenade(int id) {
+        for (int i = 0; i < grenades.size(); i++) {
+            Grenade grenade = (Grenade)grenades.elementAt(i);
+            if (grenade.id == id) grenades.removeElementAt(i);
+
+            return;
+        }
+    }
+
+    public void connectedServer(Level lvl) {
+        this.lvl = lvl;
+        timer = new Timer(60.f);
+    }
+
+    private void tickPlayer() throws IOException {
+        // scary code
+        if (inputClimbUp || inputClimbDown) {
+            boolean isLadderAbove = false;
+            if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x, (int)player.y - 1)) {
+                isLadderAbove = true;
+                player.x = (int)player.x;
+            }
+
+            if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x + 1, (int)player.y - 1)) {
+                isLadderAbove = true;
+                player.x = ((int)player.x) + 1;
+            }
+
+            boolean isLadderUnder = false;
+
+            if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x, ((int)player.y))) {
+                isLadderUnder = true;
+                player.x = (int)player.x;
+            }
+
+            if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x + 1, (int)(player.y))) {
+                isLadderUnder = true;
+                player.x = ((int)player.x) + 1;
+            }
+
+            if (isLadderAbove || isLadderUnder) {
+                player.onLadder = true;
+                player.speedY = inputClimbUp ? -0.2f : 0.2f;
+            }
+        }
+
+        if (inputJump) {
+            if (player.coyoteTime > 0) {
+                player.speedY = -0.3f;
+                player.coyoteTime = 0;
+            } else if (player.onLadder) {
+                player.onLadder = false;
+                player.speedY = -0.3f;
+            }
+        }
+
+        if (!player.onLadder) {
+            if (inputLeft) {
+                if (player.speedX > -0.175f) {
+                    player.speedX -= 0.03f;
+                }
+
+                if (player.speedX < -0.175f) {
+                    player.speedX = -0.175f;
+                }
+            }
+
+            if (inputRight) {
+                if (player.speedX < 0.175f) {
+                    player.speedX += 0.03f;
+                }
+
+                if (player.speedX > 0.175f) {
+                    player.speedX = 0.175f;
+                }
+            }
+        }
+
+        if (inputRotateRight || inputRotateLeft) {
+            if (inputRotateRight) player.angle += 0.06f;
+            if (inputRotateLeft) player.angle -= 0.06f;
+
+            if (multiplayer != null) {
+                multiplayer.sendAngle((float) Math.toDegrees(player.angle));
+            }
+        }
+
         if (!player.onLadder) {
             player.speedY += 0.02f;
         }
 
         float prevSpeedY = player.speedY;
 
-        lvl.movePlayer(player);
+        lvl.moveEntity(player, 1.f, 1.f);
 
         player.onGround = prevSpeedY != player.speedY && prevSpeedY > 0;
 
@@ -417,15 +346,8 @@ public class Game extends GameCanvas {
         }
 
         // Send move packet
-        if (c != null && (player.speedX != 0 || player.speedY != 0)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            DataOutputStream stream = new DataOutputStream(bytes);
-            stream.writeByte(PACKET_MOVE);
-            Utils.writeFloatLE(stream, player.x);
-            Utils.writeFloatLE(stream, player.y);
-            stream.flush();
-
-            c.send(0, bytes.toByteArray(), ENetPacket.FLAG_UNRELIABLE_FRAGMENT);
+        if (multiplayer != null && (player.speedX != 0 || player.speedY != 0)) {
+            multiplayer.sendMove(player);
         }
 
         if (player.speedX > -0.01f && player.speedX < 0.01f) player.speedX = 0;
@@ -439,13 +361,13 @@ public class Game extends GameCanvas {
         }
     }
 
-    public void drawConnectingScreen(String text) {
+    private void drawConnectingScreen(String text) {
         g.setColor(0);
         g.drawString(text, this.getWidth() / 2, 0, Graphics.TOP|Graphics.HCENTER);
         flushGraphics();
     }
 
-    public void updateKeys(int keyCode, boolean pressed) {
+    private void updateKeys(int keyCode, boolean pressed) {
         if (keyCode == KEY_NUM2) inputClimbUp = pressed;
         else if (getGameAction(keyCode) == UP) inputJump = pressed;
 
@@ -457,12 +379,26 @@ public class Game extends GameCanvas {
         if (keyCode == KEY_NUM3) inputRotateRight = pressed;
     }
 
-    public void keyPressed(int keyCode) {
-        System.out.println(keyCode);
+    protected void keyPressed(int keyCode) {
         updateKeys(keyCode, true);
+
+        if (keyCode == KEY_STAR) {
+            player.weapon++;
+            player.weapon %= 3;
+        }
+
+        if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) {
+            if (multiplayer != null) {
+                multiplayer.sendShoot((float) player.angle);
+            } else {
+                Bullet bullet = new Bullet();
+                bullet.x = player.x;
+                bullet.y = player.y;
+            }
+        }
     }
 
-    public void keyReleased(int keyCode) {
+    protected void keyReleased(int keyCode) {
         updateKeys(keyCode, false);
     }
 }

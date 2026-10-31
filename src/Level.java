@@ -2,7 +2,6 @@ import gzip.*;
 
 import javax.microedition.lcdui.Graphics;
 import java.io.*;
-import java.util.Vector;
 
 public class Level {
     public static int LEVEL_SIZE = 128;
@@ -31,23 +30,17 @@ public class Level {
         public int x; // pixels
         public int y; // pixels
         public int respawnTime; // millis
-        public float newY;
         public boolean isSent;
 
         public Collectible(float x, float y, byte type) {
-            int xi = (int)(x * 8);
-            int yi = (int)(y * 8);
-
-            this.x = (int)((x - (float)xi) * 8);
-            this.y = (int)((y - (float)yi) * 8);
-
+            this.x = (int)(x * 8);
+            this.y = (int)(y * 8);
             this.type = type;
             this.isSent = false;
         }
     }
 
     private final Collectible[] collectibles;
-    private final Vector grenades = new Vector();
 
     private Level(byte[] background, byte[] foreground, Collectible[] collectibles) {
         this.background = background;
@@ -56,8 +49,8 @@ public class Level {
 
         for (int i = 0; i < LEVEL_SIZE * LEVEL_SIZE; i++) {
             // remove illegal blocks
-            if (background[i] < 0 || background[i] > 8) background[i] = 0;
-            if (foreground[i] < 0 || foreground[i] > 8) foreground[i] = 0;
+            if (background[i] < 0 || background[i] > 9) background[i] = 0;
+            if (foreground[i] < 0 || foreground[i] > 9) foreground[i] = 0;
         }
     }
 
@@ -66,7 +59,7 @@ public class Level {
 
         byte header = in.readByte();
 
-        if (header != Game.PACKET_LEVEL) {
+        if (header != Multiplayer.PACKET_LEVEL) {
             throw new RuntimeException("The ENet packet is not a level!");
         }
 
@@ -111,8 +104,8 @@ public class Level {
         Collectible[] collectibles = new Collectible[collectibleCount];
 
         for (int i = 0; i < collectibleCount; i++) {
-            float x = in.readFloat();
-            float y = in.readFloat();
+            float x = Utils.readFloatLE(in);
+            float y = Utils.readFloatLE(in);
             byte type = in.readByte();
 
             collectibles[i] = new Collectible(x, y, type);
@@ -144,8 +137,10 @@ public class Level {
 
             Collectible coll = new Collectible(x, y, type);
             coll.respawnTime = (int)(Utils.readFloatLE(stream) * 1000);
-            coll.newY = Utils.readFloatLE(stream);
+            stream.skip(4); // skip newY of collectible
             coll.isSent = stream.read() == 0x01;
+
+            collectibles[i] = coll;
         }
 
         return new Level(background, foreground, collectibles);
@@ -158,12 +153,11 @@ public class Level {
         int minY = Math.max(offY / 8, 0);
         int maxY = Math.min((offY + height) / 8 + 1, LEVEL_SIZE);
 
-        for (int x = minX; x < maxX; x++) {
-            for (int y = minY; y < maxY; y++) {
+        for (int y = minY; y < maxY; y++) {
+            for (int x = minX; x < maxX; x++) {
                 int idx = y * LEVEL_SIZE + x;
 
                 if (foreground[idx] == 0 && background[idx] != 0) {
-                    g.setColor(0x7F7F7F);
                     g.drawRegion(Resources.blocks, (background[idx] - 1) * 8, 8, 8, 8, 0, x * 8 - offX, y * 8 - offY, 0);
                 }
 
@@ -171,19 +165,20 @@ public class Level {
                     continue;
                 }
 
-                g.setColor(0xFFFFFF);
                 g.drawRegion(Resources.blocks, (foreground[idx] - 1) * 8, 0, 8, 8, 0, x * 8 - offX, y * 8 - offY, 0);
             }
         }
+
+
     }
 
-    public void movePlayer(Game.Player player) {
+    public void moveEntity(Entity entity, float width, float height) {
         // X
-        int minX = (int)Math.min(player.x, player.x + player.speedX);
-        int maxX = (int)(Math.max(player.x, player.x + player.speedX) + 1);
+        int minX = (int)Math.min(entity.x, entity.x + entity.speedX);
+        int maxX = (int)(Math.max(entity.x, entity.x + entity.speedX) + 1);
 
-        int minY = (int)player.y;
-        int maxY = (int)(player.y + 1);
+        int minY = (int)entity.y;
+        int maxY = (int)(entity.y + 1);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -193,22 +188,22 @@ public class Level {
 
                 if (foreground[idx] == 0 || foreground[idx] == 4) continue;
 
-                player.speedX = clipX(
+                entity.speedX = clipX(
                         xx, yy, 1, 1,
-                        player.x, player.y, 1, 1,
-                        player.speedX
+                        entity.x, entity.y, width, height,
+                        entity.speedX
                 );
             }
         }
 
-        player.x += player.speedX;
+        entity.x += entity.speedX;
 
         // Y
-        minX = (int)player.x;
-        maxX = (int)(player.x + 1);
+        minX = (int)entity.x;
+        maxX = (int)(entity.x + 1);
 
-        minY = (int)Math.min(player.y, player.y + player.speedY);
-        maxY = (int)(Math.max(player.y, player.y + player.speedY) + 1);
+        minY = (int)Math.min(entity.y, entity.y + entity.speedY);
+        maxY = (int)(Math.max(entity.y, entity.y + entity.speedY) + 1);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -218,21 +213,19 @@ public class Level {
 
                 if (foreground[idx] == 0 || foreground[idx] == 4) continue;
 
-                player.speedY = clipY(
+                entity.speedY = clipY(
                         xx, yy, 1, 1,
-                        player.x, player.y, 1, 1,
-                        player.speedY
+                        entity.x, entity.y, width, height,
+                        entity.speedY
                 );
             }
         }
 
-        player.y += player.speedY;
+        entity.y += entity.speedY;
     }
 
     public byte getBlockFG(int x, int y) {
-        if (y >= LEVEL_SIZE) return 0;
-        if (x >= LEVEL_SIZE) return 0;
-
+        if (x < 0 || y < 0 || y >= LEVEL_SIZE || x >= LEVEL_SIZE) return BLOCK_AIR;
         return this.foreground[y * LEVEL_SIZE + x];
     }
 

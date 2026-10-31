@@ -7,12 +7,20 @@ public class Utils {
         byte b2 = (byte) in.read();
         byte b3 = (byte) in.read();
 
+//        if ((b0 | b1 | b2 | b3) < 0) {
+//            throw new EOFException();
+//        }
+
         return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
     }
 
     static public int readShortLE(InputStream in) throws IOException {
         byte b0 = (byte) in.read();
         byte b1 = (byte) in.read();
+
+//        if ((b0 | b1) < 0) {
+//            throw new EOFException();
+//        }
 
         return b0 | (b1 << 8);
     }
@@ -23,9 +31,9 @@ public class Utils {
         int b2 = in.read();
         int b3 = in.read();
 
-        if ((b0 | b1 | b2 | b3) < 0) {
-            throw new EOFException();
-        }
+//        if ((b0 | b1 | b2 | b3) < 0) {
+//            throw new EOFException();
+//        }
 
         int bits = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
 
@@ -39,5 +47,14 @@ public class Utils {
         out.write((bits >>> 8) & 0xFF);
         out.write((bits >>> 16) & 0xFF);
         out.write((bits >>> 24) & 0xFF);
+    }
+
+    public static void writeFloatLE(byte[] data, int offset, float value) {
+        int bits = Float.floatToIntBits(value);
+
+        data[offset]     = (byte)bits;
+        data[offset + 1] = (byte)(bits >>> 8);
+        data[offset + 2] = (byte)(bits >>> 16);
+        data[offset + 3] = (byte)(bits >>> 24);
     }
 }
