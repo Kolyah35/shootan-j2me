@@ -44,20 +44,26 @@ public class Multiplayer {
     private final String playerName;
     public Vector remotePlayers = new Vector();
 
-    public Multiplayer(String host, String playerName) throws IOException {
+    private Game game;
+
+    public Multiplayer(Game game, String host, String playerName) throws IOException {
+        this.game = game;
         { // make url and port
             int idx = host.indexOf(":");
 
             if (idx > 0) {
-                port = Integer.parseInt(host.substring(idx + 1));
+                this.port = Integer.parseInt(host.substring(idx + 1));
                 this.host = host.substring(0, idx);
+            } else {
+                this.host = host;
             }
         }
 
         this.playerName = playerName;
 
+        System.out.println("Connecting to " + this.host + ":" + this.port + "...");
         // Connect to host
-        client = new ENetClient(new DatagramTransport(host, port));
+        client = new ENetClient(new DatagramTransport(this.host, this.port));
         client.connect(2, 0);
 
         state = STATE_CONNECTING;
@@ -84,7 +90,7 @@ public class Multiplayer {
         }
     }
 
-    public void update() throws IOException {
+    public void update() {
         // process 64 packets at once
         for (int j = 0; j < 64; j++) {
             ENetEvent e = client.service(0);
@@ -121,7 +127,7 @@ public class Multiplayer {
     }
 
     public void sendThrowGrenade(float grenadeAngle) {
-        universalPacket[0] = PACKET_ADDGRENADE;
+        universalPacket[0] = PACKET_THROWGRENADE;
         Utils.writeFloatLE(universalPacket, 1, (float) grenadeAngle);
 
         client.send(0, universalPacket, ENetPacket.FLAG_RELIABLE);
@@ -154,17 +160,14 @@ public class Multiplayer {
         client.send(0, outputStream.toByteArray(), ENetPacket.FLAG_RELIABLE);
     }
 
-    private void handlePacket(ENetPacket packet) {
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(packet.data));
+    private void handlePacket(ENetPacket packet)  {
+        ByteArrayInputStream bytes = new ByteArrayInputStream(packet.data);
+        DataInputStream in = new DataInputStream(bytes);
 
-        Game game = Game.getInstance();
+        int header = -1;
 
         try {
-            byte header = in.readByte();
-
-            if (state == STATE_LOGGING_IN && header == PACKET_LEVEL) {
-
-            }
+            header = in.readByte();
 
             switch (header) {
                 case PACKET_AUTH: {
@@ -177,8 +180,8 @@ public class Multiplayer {
                         float y = Utils.readFloatLE(in);
 
                         int nameLen = Utils.readShortLE(in);
-                        byte[] name = new byte[nameLen - 1];
-                        in.read(name);
+                        byte[] name = new byte[nameLen];
+                        in.readFully(name);
 
                         byte hp = in.readByte();
                         byte weapon = in.readByte();
@@ -281,11 +284,11 @@ public class Multiplayer {
                         RemotePlayer remotePlayer = getRemotePlayer(id);
 
                         if (remotePlayer != null) {
-                            remotePlayer.transform = Math.cos(angle) < 0 ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
+                            remotePlayer.transform = Math.cos(Math.toRadians(angle)) < 0 ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
                         }
-
-                        break;
                     }
+
+                    break;
                 }
 
                 case PACKET_ADDBULLET: {
@@ -328,8 +331,54 @@ public class Multiplayer {
                     break;
                 }
 
-                case PACKET_UPDATECOLLECTIBLE:
-                    break; // i refuse implementing it
+                case PACKET_SETSCORE: {
+                    int id = Utils.readIntLE(in);
+                    int killedId = Utils.readIntLE(in);
+                    int score = Utils.readIntLE(in);
+
+                    if (killedId != game.player.id) {
+                        RemotePlayer remotePlayer = getRemotePlayer(killedId);
+
+                        if (remotePlayer != null) {
+                            remotePlayer.isDied = true;
+                        }
+                    } else {
+                        game.player.isDied = true;
+                    }
+
+                    if (id != game.player.id) {
+                        RemotePlayer remotePlayer = getRemotePlayer(killedId);
+
+                        if (remotePlayer != null) {
+                            remotePlayer.score = score;
+                        }
+                    } else {
+                        game.player.score = score;
+                    }
+
+                    break;
+                }
+
+                // TODO: chat packet
+                // TODO: damage packet
+
+                case PACKET_ROUNDEND: {
+                    game.winnerId = Utils.readIntLE(in);
+                    break;
+                }
+
+                case PACKET_UPDATECOLLECTIBLE: {
+                    float x = Utils.readFloatLE(in);
+                    float y = Utils.readFloatLE(in);
+                    byte type = in.readByte();
+
+                    Level.Collectible coll = game.lvl.findNearestCollectible(x, y);
+
+                    if (coll != null) {
+                        coll.type = type;
+                    }
+                    break;
+                }
 
                 case PACKET_THROWGRENADE: {
                     Game.Grenade grenade = new Game.Grenade();
@@ -350,18 +399,54 @@ public class Multiplayer {
                 }
 
                 case PACKET_REMOVEGRENADE: {
-                    game.player.grenade = false;
+                    game.removeGrenade(Utils.readIntLE(in));
+                    break;
+                }
+
+                case PACKET_REVIVE: {
+                    int id = Utils.readIntLE(in);
+                    float x = Utils.readFloatLE(in);
+                    float y = Utils.readFloatLE(in);
+
+                    if (id != game.player.id) {
+                        RemotePlayer remotePlayer = getRemotePlayer(id);
+
+                        if (remotePlayer != null) {
+                            remotePlayer.x = (int)(x * 8);
+                            remotePlayer.y = (int)(y * 8);
+                            remotePlayer.isDied = false;
+                            remotePlayer.hp = 100;
+                        }
+                    } else {
+                        game.player.x = x;
+                        game.player.y = y;
+                        game.player.hp = 100;
+                        game.player.isDied = false;
+                    }
+
                     break;
                 }
             }
         } catch (IOException e) {
-            System.out.println("Failed to handle packet: " + e.getMessage());
+            System.out.println(
+                    "Packet read error: type=" + header +
+                    " size=" + packet.data.length +
+                    " offset=" + (packet.data.length - bytes.available()) +
+                    " remaining=" + bytes.available() +
+                    " exception=" + e.toString()
+            );
+            e.printStackTrace();
         }
     }
 
     private void addRemotePlayer(RemotePlayer player) {
-        if (remotePlayers.contains(player)) {
-            return;
+        for (int i = 0; i < remotePlayers.size(); i++) {
+            RemotePlayer remotePlayer = (RemotePlayer) remotePlayers.elementAt(i);
+
+            if (remotePlayer.id == player.id) {
+                remotePlayers.setElementAt(player, i);
+                return;
+            }
         }
 
         remotePlayers.addElement(player);
@@ -370,9 +455,10 @@ public class Multiplayer {
     private void removeRemotePlayer(int id) {
         for (int i = 0; i < remotePlayers.size(); i++) {
             RemotePlayer remotePlayer = (RemotePlayer)remotePlayers.elementAt(i);
-            if (remotePlayer.id == id) remotePlayers.removeElementAt(i);
-
-            return;
+            if (remotePlayer.id == id) {
+                remotePlayers.removeElementAt(i);
+                return;
+            }
         }
     }
 

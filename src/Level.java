@@ -36,7 +36,6 @@ public class Level {
             this.x = (int)(x * 8);
             this.y = (int)(y * 8);
             this.type = type;
-            this.isSent = false;
         }
     }
 
@@ -119,7 +118,7 @@ public class Level {
     }
 
     public static Level createFromRes(String name) throws IOException {
-        InputStream stream = Game.getInstance().getClass().getResourceAsStream(name);
+        InputStream stream = new Object().getClass().getResourceAsStream(name);
 
         byte[] foreground = new byte[LEVEL_SIZE*LEVEL_SIZE];
         stream.read(foreground);
@@ -137,14 +136,17 @@ public class Level {
 
             Collectible coll = new Collectible(x, y, type);
             coll.respawnTime = (int)(Utils.readFloatLE(stream) * 1000);
-            stream.skip(4); // skip newY of collectible
-            coll.isSent = stream.read() == 0x01;
+            stream.skip(5); // skip unused
 
             collectibles[i] = coll;
         }
 
         return new Level(background, foreground, collectibles);
     }
+
+    private static final byte[] COLLECTIBLES_OFFSET = {
+            0,  1,  2,  2,  1,  0, -1, -2, -2, -1
+    };
 
     public void render(Graphics g, int offX, int offY, int width, int height) {
         int minX = Math.max(0, offX / 8);
@@ -169,16 +171,40 @@ public class Level {
             }
         }
 
+        for (int i = 0; i < collectibles.length; i++) {
+            Collectible coll = collectibles[i];
 
+            int phase = (int)((System.currentTimeMillis() / 500) & 9);
+            int offset = COLLECTIBLES_OFFSET[phase];
+            int x = coll.x - offX;
+            int y = coll.y - offY;
+
+            if (x < 0 || y < 0 || x > width || y > height) continue;
+
+            switch (coll.type) {
+                case 1:
+                    g.drawRegion(Resources.spritesheet, 16, 32, 15, 5, 0, x - 8, y - 2 + offset, 0);
+                    break;
+                case 2:
+                    g.drawRegion(Resources.spritesheet, 17, 25, 26, 7, 0, x - 13, y - 3 + offset, 0);
+                    break;
+                case 3:
+                    g.drawRegion(Resources.spritesheet, 0, 30, 7, 7, 0, x - 3, y - 3 + offset, 0);
+                    break;
+                case 4:
+                    g.drawRegion(Resources.spritesheet, 11, 32, 5, 5, 0, x - 2, y - 2 + offset, 0);
+                    break;
+            }
+        }
     }
 
     public void moveEntity(Entity entity, float width, float height) {
         // X
         int minX = (int)Math.min(entity.x, entity.x + entity.speedX);
-        int maxX = (int)(Math.max(entity.x, entity.x + entity.speedX) + 1);
+        int maxX = (int)(Math.max(entity.x, entity.x + entity.speedX) + width);
 
         int minY = (int)entity.y;
-        int maxY = (int)(entity.y + 1);
+        int maxY = (int)(entity.y + height);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -200,10 +226,10 @@ public class Level {
 
         // Y
         minX = (int)entity.x;
-        maxX = (int)(entity.x + 1);
+        maxX = (int)(entity.x + width);
 
         minY = (int)Math.min(entity.y, entity.y + entity.speedY);
-        maxY = (int)(Math.max(entity.y, entity.y + entity.speedY) + 1);
+        maxY = (int)(Math.max(entity.y, entity.y + entity.speedY) + height);
 
         for (int yy = minY; yy <= maxY; yy++) {
             for (int xx = minX; xx <= maxX; xx++) {
@@ -259,5 +285,26 @@ public class Level {
         }
 
         return ya;
+    }
+
+    Collectible findNearestCollectible(float x, float y) {
+        Collectible nearest = null;
+        int nearestDist = 99999999;
+
+        int tx = (int)(x * 8);
+        int ty = (int)(y * 8);
+
+        for (int i = 0; i < collectibles.length; i++) {
+            int dist = (int)Math.sqrt(
+                    (collectibles[i].x - tx) * (collectibles[i].x - tx) + (collectibles[i].y - ty) * (collectibles[i].y - ty)
+            );
+
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = collectibles[i];
+            }
+        }
+
+        return nearest;
     }
 }

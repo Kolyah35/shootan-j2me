@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.util.Random;
 
 public class shootan extends MIDlet implements CommandListener {
-    static shootan instance = null;
+    static shootan instance;
     public Display display = null;
+    private static boolean started;
 
+    Form f;
     Random rand = new Random();
 
     Command join = new Command("Connect", Command.OK, 1);
@@ -16,10 +18,12 @@ public class shootan extends MIDlet implements CommandListener {
     TextField hostname = new TextField("Server IP", "sffempire.ru", 256, TextField.ANY);
 
     protected void startApp() {
+        if (started) return;
+        started = true;
         instance = this;
         display = Display.getDisplay(this);
 
-        Form f = new Form("shootan");
+        f = new Form("shootan");
         f.append(username);
         f.append(hostname);
         f.addCommand(join);
@@ -35,23 +39,26 @@ public class shootan extends MIDlet implements CommandListener {
     protected void destroyApp(boolean unconditional) {
     }
 
-    public static shootan getInstance() {
-        return instance;
-    }
-
     public void commandAction(Command command, Displayable displayable) {
-        Display.getDisplay(this).setCurrent(Game.getInstance());
+        boolean offlineMode = false;
 
         try {
             if (command == join) {
-                Game.getInstance().start(username.getString(), hostname.getString(), false);
+                offlineMode = false;
             }
 
             if (command == offline) {
-                Game.getInstance().start(username.getString(), hostname.getString(), true);
+                offlineMode = true;
             }
-        } catch (IOException e) {
+
+            Game game = new Game(username.getString(), hostname.getString(), offlineMode);
+            display.setCurrent(game);
+
+            new Thread(game).start();
+        } catch (Exception e) {
             e.printStackTrace();
+            Alert alert = new Alert(e.toString());
+            display.setCurrent(alert, f);
         }
     }
 }

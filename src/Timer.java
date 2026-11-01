@@ -1,7 +1,7 @@
 public class Timer {
     private static final long MS_PER_SECOND = 1000L;
     private static final long MAX_MS_PER_UPDATE = 1000L;
-    private static final int MAX_TICKS_PER_UPDATE = 100;
+    private static final int MAX_TICKS_PER_UPDATE = 4;
 
     /**
      * Amount of ticks per second
@@ -49,6 +49,8 @@ public class Timer {
      * Call this function in the main render loop of the game
      */
     public void advanceTime() {
+        this.ticks = 0;
+
         // TODO: fully remove float operations
         long now = System.currentTimeMillis();
         long passedMs = now - this.lastTime;

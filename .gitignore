@@ -4,6 +4,7 @@ out/
 !**/src/test/**/out/
 proguard-local.cfg
 .idea/runConfigurations
+.idea/dictionaries
 
 ### Eclipse ###
 .apt_generated

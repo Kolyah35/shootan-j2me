@@ -2,25 +2,25 @@ import java.io.*;
 
 public class Utils {
     static public int readIntLE(InputStream in) throws IOException {
-        byte b0 = (byte) in.read();
-        byte b1 = (byte) in.read();
-        byte b2 = (byte) in.read();
-        byte b3 = (byte) in.read();
+        int b0 = in.read();
+        int b1 = in.read();
+        int b2 = in.read();
+        int b3 = in.read();
 
-//        if ((b0 | b1 | b2 | b3) < 0) {
-//            throw new EOFException();
-//        }
+        if ((b0 | b1 | b2 | b3) < 0) {
+            throw new EOFException();
+        }
 
         return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
     }
 
     static public int readShortLE(InputStream in) throws IOException {
-        byte b0 = (byte) in.read();
-        byte b1 = (byte) in.read();
+        int b0 = in.read();
+        int b1 = in.read();
 
-//        if ((b0 | b1) < 0) {
-//            throw new EOFException();
-//        }
+        if ((b0 | b1) < 0) {
+            throw new EOFException();
+        }
 
         return b0 | (b1 << 8);
     }
@@ -31,9 +31,9 @@ public class Utils {
         int b2 = in.read();
         int b3 = in.read();
 
-//        if ((b0 | b1 | b2 | b3) < 0) {
-//            throw new EOFException();
-//        }
+        if ((b0 | b1 | b2 | b3) < 0) {
+            throw new EOFException();
+        }
 
         int bits = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
 

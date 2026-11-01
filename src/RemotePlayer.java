@@ -9,6 +9,7 @@ public class RemotePlayer {
     public byte weapon;
     public boolean isDied = false;
     public int transform;
+    public int score = 0;
 
     public RemotePlayer(int id, String username, int x, int y, byte hp, byte hat, byte weapon, boolean isDied) {
         this.id = id;
