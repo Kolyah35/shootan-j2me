@@ -110,7 +110,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private Scorable[] leaderboard;
 
     private static final String[] PAUSED_CHOICES = new String[]{"Resume", "Open chat", "Settings", "Quit to menu"};
-    private int screenChoice = 0;
+    private int pauseChoice = 0;
     private boolean fromDeathScreen = false;
 
     private final TextBox chatBox = new TextBox("Write a message", null, 255, TextField.ANY);
@@ -368,7 +368,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
                 switch (screen) {
                     case SCREEN_PAUSE:
-                        drawScreen(PAUSED_CHOICES, screenChoice);
+                        drawScreen(PAUSED_CHOICES, pauseChoice);
                         Resources.tinyFont.draw(g, "2: Up  8: Down  5: Select", 0, getHeight() - lineHeight);
                         drawLeaderboard(90, false);
                         break;
@@ -892,8 +892,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         if (screen != SCREEN_NONE) {
             switch (screen) {
                 case SCREEN_PAUSE: {
-                    if (keyCode == KEY_NUM5) {
-                        switch (screenChoice) {
+                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) {
+                        switch (pauseChoice) {
                             case 0: screen = SCREEN_NONE; break;
                             case 1: if (multiplayer != null) screen = SCREEN_CHAT; break;
                             case 2: screen = SCREEN_SETTINGS; break;
@@ -907,10 +907,15 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         return;
                     }
 
-                    if (keyCode == KEY_NUM2) screenChoice = (screenChoice - 1) % PAUSED_CHOICES.length;
-                    if (keyCode == KEY_NUM8) screenChoice = (screenChoice + 1) % PAUSED_CHOICES.length;
+                    if (keyCode == KEY_NUM2 || getGameAction(keyCode) == UP) pauseChoice = (pauseChoice - 1) % PAUSED_CHOICES.length;
+                    if (keyCode == KEY_NUM8 || getGameAction(keyCode) == DOWN) pauseChoice = (pauseChoice + 1) % PAUSED_CHOICES.length;
 
-                    if (screenChoice < 0) screenChoice = PAUSED_CHOICES.length - 1;
+                    if (keyCode == KEY_NUM0) {
+                        pauseChoice = 0;
+                        screen = SCREEN_PAUSE;
+                    }
+
+                    if (pauseChoice < 0) pauseChoice = PAUSED_CHOICES.length - 1;
 
                     break;
                 }
@@ -921,7 +926,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         fromDeathScreen = false;
                     }
 
-                    if (keyCode == KEY_NUM5) {
+                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) {
                         shootan.instance.display.setCurrent(chatBox);
                         return;
                     }
@@ -930,12 +935,12 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
                 case SCREEN_SETTINGS: {
                     if (keyCode == KEY_NUM0) screen = SCREEN_PAUSE;
-                    if (keyCode == KEY_NUM2) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
-                    if (keyCode == KEY_NUM8) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
+                    if (keyCode == KEY_NUM2 || getGameAction(keyCode) == UP) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
+                    if (keyCode == KEY_NUM8 || getGameAction(keyCode) == DOWN) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
 
                     if (settingChoice < 0) settingChoice = SETTINGS_CHOICES.length - 1;
 
-                    if (keyCode == KEY_NUM5) changeSetting(settingChoice);
+                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) changeSetting(settingChoice);
 
                     break;
                 }
