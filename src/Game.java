@@ -27,6 +27,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     boolean inputRight = false;
     boolean inputRotateLeft = false;
     boolean inputRotateRight = false;
+    boolean inputShoot = false;
+    boolean inputGrenade = false;
 
     long ticks = 0;
 
@@ -119,7 +121,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private static final int CHAT_MAX_MESSAGE = 512;
 
     private final StringBuffer chatText = new StringBuffer(2048);
-    private String chatRenderText;
+    private String chatRenderText = "";
     private int chatLines = 0;
 
     public Game(String playerName, String host, boolean offline, byte hatId) throws IOException {
@@ -182,7 +184,9 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             g.fillRect(0, 0, this.getWidth(), this.getHeight());
 
             if (player != null && lvl != null) {
-                timer.advanceTime();
+                if (multiplayer != null || screen == SCREEN_NONE) {
+                    timer.advanceTime();
+                }
 
                 for (int tick = 0; tick < timer.ticks; tick++) {
                     if (!player.isDied) {
@@ -263,8 +267,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
                             int height = Resources.defaultFont.getLineHeight();
 
-                            Resources.tinyFont.draw(g, pl.username,
-                                    x + 4 - Resources.tinyFont.stringWidth(pl.username) / 2, y - height);
+                            Resources.tinyFont.draw(g, pl.username, x + 4 - pl.usernameWidth / 2, y - height);
                         }
                     }
 
@@ -290,7 +293,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         }
                     }
                 }
-
 
                 int cx = player.pixelsX() - offX + 4;
                 int cy = player.pixelsY() - offY + 4;
@@ -562,6 +564,11 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     }
 
     private void updateLeaderboard() {
+        if (multiplayer == null) {
+            leaderboard = new Scorable[]{player};
+            return;
+        }
+
         int playerCount = multiplayer.remotePlayers.size() + 1;
 
         if (leaderboard == null || leaderboard.length != playerCount) {
@@ -732,6 +739,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         if (syncAimDirection && ((inputLeft && player.aimCos > 0) || (inputRight && player.aimCos < 0))) {
             player.angle = Math.PI - player.angle;
             player.updateAim();
+
+            if (multiplayer != null) {
+                multiplayer.sendAngle((float) Math.toDegrees(player.angle));
+            }
         }
 
         if (inputRotateRight || inputRotateLeft) {
@@ -743,6 +754,44 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             }
 
             player.updateAim();
+        }
+
+        if (inputShoot && !player.isDied && player.reloadTimes[player.weapon] == 0) {
+            if (multiplayer != null) {
+                multiplayer.sendShoot((float) player.angle);
+            } else {
+                Bullet bullet = new Bullet();
+                bullet.x = player.x;
+                bullet.y = player.y;
+                bullet.angle = (float) player.angle;
+                bullet.speedY = (float) Math.sin(player.angle) * 0.6f;
+                bullet.speedX = (float) Math.cos(player.angle) * 0.6f;
+                bullet.weaponId = player.weapon;
+                bullet.id = bullets.size();
+                bullet.ownerId = player.id;
+
+                addBullet(bullet);
+            }
+
+            player.reloadTimes[player.weapon] = RELOAD_TIME[player.weapon];
+        }
+
+        if (inputGrenade && !player.isDied && player.grenade) {
+            if (multiplayer != null) {
+                multiplayer.sendThrowGrenade((float) player.angle);
+            } else {
+                Grenade grenade = new Grenade();
+                grenade.x = player.x + 0.5f;
+                grenade.y = player.y + 0.5f;
+                grenade.speedY = (float) Math.sin(player.angle) * 0.7f;
+                grenade.speedX = (float) Math.cos(player.angle) * 0.7f;
+                grenade.id = grenades.size();
+                grenade.lifeTime = 125;
+
+                addGrenade(grenade);
+            }
+
+            player.grenade = false;
         }
 
         if (!player.onLadder) {
@@ -781,6 +830,9 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         if (keyCode == KEY_NUM2) inputClimbUp = pressed;
         else if (getGameAction(keyCode) == UP) inputJump = pressed;
 
+        if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) inputShoot = pressed;
+        if (keyCode == KEY_NUM9) inputGrenade = pressed;
+
         if (keyCode == KEY_NUM8) inputClimbDown = pressed;
         if (keyCode == KEY_NUM4 || getGameAction(keyCode) == LEFT) inputLeft = pressed;
         if (keyCode == KEY_NUM6 || getGameAction(keyCode) == RIGHT) inputRight = pressed;
@@ -797,12 +849,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         inputRotateRight = false;
         inputClimbDown = false;
         inputClimbUp = false;
-    }
-
-    private void updateSettings() {
-        SETTINGS_CHOICES[0] = "Target FPS: " + FPS_CHOICES[targetFpsChoice] + " FPS";
-        SETTINGS_CHOICES[1] = "Debug stats: " + (debug ? "YES" : "NO");
-        SETTINGS_CHOICES[2] = "Sync aim with direction: " + (syncAimDirection ? "YES" : "NO");
+        inputShoot = false;
+        inputGrenade = false;
     }
 
     private void changeSetting(int settingIndex) {
@@ -915,44 +963,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 if (multiplayer != null) {
                     multiplayer.sendChangeWeapon(player.weapon);
                 }
-            }
-
-            if ((keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) && !player.isDied && player.reloadTimes[player.weapon] == 0) {
-                if (multiplayer != null) {
-                    multiplayer.sendShoot((float) player.angle);
-                } else {
-                    Bullet bullet = new Bullet();
-                    bullet.x = player.x;
-                    bullet.y = player.y;
-                    bullet.angle = (float) player.angle;
-                    bullet.speedY = (float) Math.sin(player.angle) * 0.6f;
-                    bullet.speedX = (float) Math.cos(player.angle) * 0.6f;
-                    bullet.weaponId = player.weapon;
-                    bullet.id = bullets.size();
-                    bullet.ownerId = player.id;
-
-                    addBullet(bullet);
-                }
-
-                player.reloadTimes[player.weapon] = RELOAD_TIME[player.weapon];
-            }
-
-            if (keyCode == KEY_NUM9 && !player.isDied && player.grenade) {
-                if (multiplayer != null) {
-                    multiplayer.sendThrowGrenade((float) player.angle);
-                } else {
-                    Grenade grenade = new Grenade();
-                    grenade.x = player.x + 0.5f;
-                    grenade.y = player.y + 0.5f;
-                    grenade.speedY = (float) Math.sin(player.angle) * 0.7f;
-                    grenade.speedX = (float) Math.cos(player.angle) * 0.7f;
-                    grenade.id = grenades.size();
-                    grenade.lifeTime = 125;
-
-                    addGrenade(grenade);
-                }
-
-                player.grenade = false;
             }
         }
     }

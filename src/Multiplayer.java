@@ -69,9 +69,10 @@ public class Multiplayer {
 
         // wait for connection 15 sec
         ENetEvent e = client.service(15000);
-        if (e.type != ENetEvent.CONNECT) {
+        if (e == null || e.type != ENetEvent.CONNECT) {
             state = STATE_DISCONNECTED;
             game.disconnectedServer("Could not connect to " + host + ":" + port);
+            return;
         }
 
         state = STATE_LOGGING_IN;

@@ -11,6 +11,8 @@ public class RemotePlayer implements Scorable {
     public int transform;
     public int score;
 
+    public int usernameWidth = 0;
+
     public RemotePlayer(int id, String username, int x, int y, byte hp, byte hat, byte weapon, boolean isDied) {
         this.id = id;
         this.username = username;
@@ -20,6 +22,7 @@ public class RemotePlayer implements Scorable {
         this.hat = hat;
         this.weapon = weapon;
         this.isDied = isDied;
+        this.usernameWidth = Resources.tinyFont.stringWidth(username);
     }
 
     public int getScore() { return this.score; }

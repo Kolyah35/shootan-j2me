@@ -68,7 +68,7 @@ public class Timer {
         // Calculate passed time and ticks
         this.passedTime += passedMs * this.ticksPerSecond / MS_PER_SECOND;
 
-        if (this.passedTime > MAX_MS_PER_UPDATE) this.passedTime = MAX_MS_PER_UPDATE;
+        if (this.passedTime > MAX_TICKS_PER_UPDATE) this.passedTime = MAX_TICKS_PER_UPDATE;
 
         this.ticks = (int) this.passedTime;
 

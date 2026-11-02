@@ -171,11 +171,12 @@ public class Level {
             }
         }
 
+        int phase = (int)((System.currentTimeMillis() / 500) % COLLECTIBLES_OFFSET.length);
+        int offset = COLLECTIBLES_OFFSET[phase];
+
         for (int i = 0; i < collectibles.length; i++) {
             Collectible coll = collectibles[i];
 
-            int phase = (int)((System.currentTimeMillis() / 500) % COLLECTIBLES_OFFSET.length);
-            int offset = COLLECTIBLES_OFFSET[phase];
             int x = coll.x - offX;
             int y = coll.y - offY;
 
