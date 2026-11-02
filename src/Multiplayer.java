@@ -41,12 +41,11 @@ public class Multiplayer {
 
     private final ENetClient client;
     public int state = STATE_DISCONNECTED;
-    private final String playerName;
     public Vector remotePlayers = new Vector();
 
     private Game game;
 
-    public Multiplayer(Game game, String host, String playerName) throws IOException {
+    public Multiplayer(Game game, String host) throws IOException {
         this.game = game;
         { // make url and port
             int idx = host.indexOf(":");
@@ -59,11 +58,11 @@ public class Multiplayer {
             }
         }
 
-        this.playerName = playerName;
+        this.client = new ENetClient(new DatagramTransport(this.host, this.port));
+    }
 
+    public void connect() {
         System.out.println("Connecting to " + this.host + ":" + this.port + "...");
-        // Connect to host
-        client = new ENetClient(new DatagramTransport(this.host, this.port));
         client.connect(2, 0);
 
         state = STATE_CONNECTING;
@@ -72,21 +71,24 @@ public class Multiplayer {
         ENetEvent e = client.service(15000);
         if (e.type != ENetEvent.CONNECT) {
             state = STATE_DISCONNECTED;
-            throw new ConnectionClosedException("Cant connect to server"); // TODO: make error screen
+            game.disconnectedServer("Could not connect to " + host + ":" + port);
         }
 
         state = STATE_LOGGING_IN;
 
-        { // send login packet
+        try { // send login packet
             ByteArrayOutputStream loginPacket = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(loginPacket);
 
-            out.writeShort(0);
-            out.write(playerName.getBytes());
+            out.writeByte(PACKET_AUTH);
+            out.writeByte(game.player.hat);
+            out.write(game.player.username.getBytes());
             out.writeByte(0); // null terminator string
             out.flush();
 
             client.send(0, loginPacket.toByteArray(), ENetPacket.FLAG_RELIABLE);
+        } catch (IOException exception) {
+            game.disconnectedServer(exception + " " + exception.getMessage());
         }
     }
 
@@ -97,8 +99,12 @@ public class Multiplayer {
             if (e == null) break;
 
             if (e.type == ENetEvent.RECEIVE) handlePacket(e.packet);
-            if (e.type == ENetEvent.DISCONNECT) throw new ConnectionClosedException("Disconnected");
+            if (e.type == ENetEvent.DISCONNECT) game.disconnectedServer("Disconnected from server.");
         }
+    }
+
+    public void close() {
+        client.disconnect(0);
     }
 
     private final byte[] movePacket = new byte[9];
@@ -212,7 +218,7 @@ public class Multiplayer {
 
                     String nameStr = new String(name, "UTF-8");
 
-                    if (playerName.equals(nameStr)) {
+                    if (game.player.username.equals(nameStr)) {
                         game.player.id = id;
                         game.player.x = x;
                         game.player.y = y;
@@ -347,7 +353,7 @@ public class Multiplayer {
                     }
 
                     if (id != game.player.id) {
-                        RemotePlayer remotePlayer = getRemotePlayer(killedId);
+                        RemotePlayer remotePlayer = getRemotePlayer(id);
 
                         if (remotePlayer != null) {
                             remotePlayer.score = score;
@@ -359,11 +365,28 @@ public class Multiplayer {
                     break;
                 }
 
-                // TODO: chat packet
+                case PACKET_MESSAGE: {
+                    int length = packet.data.length - 1;
+
+                    if (length > 0 && packet.data[length] == 0x00) {
+                        length--;
+                    }
+
+                    if (length > 0) {
+                        String message = new String(packet.data, 1, length, "UTF-8");
+                        game.addChatMessage(message);
+                    }
+
+                    break;
+                }
                 // TODO: damage packet
 
                 case PACKET_ROUNDEND: {
-                    game.winnerId = Utils.readIntLE(in);
+                    int winnerId = Utils.readIntLE(in);
+                    if (winnerId != 0)
+                        game.roundEnd(winnerId);
+                    else
+                        game.roundBegin();
                     break;
                 }
 

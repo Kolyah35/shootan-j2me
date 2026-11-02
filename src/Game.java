@@ -1,18 +1,24 @@
-import javax.microedition.lcdui.Graphics;
-import javax.microedition.lcdui.Image;
+import javax.microedition.lcdui.*;
 import javax.microedition.lcdui.game.GameCanvas;
 import javax.microedition.lcdui.game.Sprite;
 
 import java.io.*;
-import java.util.Enumeration;
-import java.util.Random;
 import java.util.Vector;
 
-public class Game extends GameCanvas implements Runnable {
-    private static final int TARGET_FPS = 30;
-    private static final long FRAME_TIME = 1000 / TARGET_FPS;
+public class Game extends GameCanvas implements Runnable, CommandListener {
+    //    public static final int[] MAX_BULLETS = {20, 12, 4};
+//    public static final float[] BULLET_SPEED = {0.6f, 0.7f, 0.8f};
+    public static final int[] RELOAD_TIME = {15, 80, 105};
 
-    private Graphics g;
+//    public static final int GRENADE_BURST_RADIUS = 3;
+//    public static final int GRENADE_DAMAGE = 50;
+//    public static final float GRENADE_SPEED = 0.7f;
+//    public static final int GRENADE_LIFETIME = 125;
+
+    public static final int SCREEN_NONE = 0;
+    public static final int SCREEN_PAUSE = 1;
+    public static final int SCREEN_CHAT = 2;
+    public static final int SCREEN_SETTINGS = 3;
 
     boolean inputClimbUp = false;
     boolean inputClimbDown = false;
@@ -24,17 +30,27 @@ public class Game extends GameCanvas implements Runnable {
 
     long ticks = 0;
 
-//    public static final int[] MAX_BULLETS = {20, 12, 4};
-    public static final float[] BULLET_SPEED = {0.6f, 0.7f, 0.8f};
-    public static final int[] RELOAD_TIME = {15, 80, 105};
+    public Multiplayer multiplayer = null;
+    public Level lvl = null;
+    public Player player = new Player();
+    public Timer timer = null;
 
-    public static final int GRENADE_BURST_RADIUS = 3;
-    public static final int GRENADE_DAMAGE = 50;
-    public static final float GRENADE_SPEED = 0.7f;
-    public static final int GRENADE_LIFETIME = 125;
+    private static final int[] FPS_CHOICES = new int[]{20, 30, 60};
+    private int targetFpsChoice = 1;
+    private boolean debug = false;
+    private boolean syncAimDirection = true;
+    private int settingChoice = 0;
+    private static String[] SETTINGS_CHOICES = new String[]{"Target FPS: 30 FPS", "Debug stats: NO", "Sync aim with direction: YES"};
 
-    public static class Player extends Entity {
+    public boolean shouldClose = false;
+    public int screen = SCREEN_NONE;
+
+    public static class Player extends Entity implements Scorable {
+        public String username;
         public double angle = 0;
+        public double lastAngle = Double.NaN;
+        public double aimCos;
+        public double aimSin;
 
         public int id;
         public byte hat = 0;
@@ -53,12 +69,19 @@ public class Game extends GameCanvas implements Runnable {
 
         public int coyoteTime = 0;
         public int score = 0;
-    };
 
-    public Multiplayer multiplayer = null;
-    public Level lvl = null;
-    public Player player = new Player();
-    public Timer timer = null;
+        public int getScore() { return this.score; }
+
+        public String getUsername() { return this.username; }
+
+        public void updateAim() {
+            if (angle != lastAngle) {
+                lastAngle = angle;
+                aimCos = Math.cos(lastAngle);
+                aimSin = Math.sin(lastAngle);
+            }
+        }
+    };
 
     public static class Bullet extends Entity {
         public int id;
@@ -67,29 +90,61 @@ public class Game extends GameCanvas implements Runnable {
         public int weaponId;
     };
 
-    public Vector bullets = new Vector();
+    private final Vector bullets = new Vector();
 
     public static class Grenade extends Entity {
         public int id;
         public int lifeTime;
     }
 
+    private Graphics g;
+
     private final Vector grenades = new Vector();
 
     // if not zero then round end and leaderboard screen pops out
-    public int winnerId = 0;
+    private int winnerId = 0;
 
     private Image darkOverlay;
+    private Scorable[] leaderboard;
 
-    public Game(String playerName, String host, boolean offline) throws IOException {
+    private static final String[] PAUSED_CHOICES = new String[]{"Resume", "Open chat", "Settings", "Quit to menu"};
+    private int screenChoice = 0;
+    private boolean fromDeathScreen = false;
+
+    private final TextBox chatBox = new TextBox("Write a message", null, 255, TextField.ANY);
+    private final Command chatSend = new Command("Send", Command.OK, 1);
+    private final Command chatBack = new Command("Back", Command.CANCEL, 2);
+
+    private static final int CHAT_PADDING = 6;
+    private static final int CHAT_MAX_MESSAGE = 512;
+
+    private final StringBuffer chatText = new StringBuffer(2048);
+    private String chatRenderText;
+    private int chatLines = 0;
+
+    public Game(String playerName, String host, boolean offline, byte hatId) throws IOException {
         super(false);
 
         if (!offline) {
-            multiplayer = new Multiplayer(this, host, playerName);
-        } else {
-            // offline mode
-            connectedServer(Level.createFromRes("/world.dat"));
+            multiplayer = new Multiplayer(this, host);
         }
+
+        player.username = playerName;
+        player.hat = (byte) hatId;
+
+        chatBox.setInitialInputMode("MIDP_LOWERCASE_LATIN");
+        chatBox.addCommand(chatSend);
+        chatBox.addCommand(chatBack);
+        chatBox.setCommandListener(this);
+    }
+
+    public void run() {
+        g = getGraphics();
+
+        int offX = 0;
+        int offY = 0;
+
+        setFullScreenMode(true);
 
         // create death overlay
         int[] pixels = new int[getWidth() * getHeight()];
@@ -101,17 +156,23 @@ public class Game extends GameCanvas implements Runnable {
         }
 
         darkOverlay = Image.createRGBImage(pixels, getWidth(), getHeight(), true);
-    }
 
-    public void run() {
-        g = getGraphics();
+        // offline mode
+        if (multiplayer == null) {
+            try {
+                connectedServer(Level.createFromRes("/world.dat"));
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to load level from res. Place your world.dat into res folder of JAR file.");
+            }
+        } else {
+            multiplayer.connect();
+        }
 
-        int offX = 0;
-        int offY = 0;
+        long lastElapsed = 0;
 
-        setFullScreenMode(true);
+        player.updateAim();
 
-        while (true) {
+        while (!shouldClose) {
             long frameStart = System.currentTimeMillis();
 
             if (multiplayer != null) multiplayer.update();
@@ -140,7 +201,7 @@ public class Game extends GameCanvas implements Runnable {
                         boolean shouldDelete =
                                 b.x < 0 || b.x > Level.LEVEL_SIZE || b.y < 0 || b.y > Level.LEVEL_SIZE || prevSpeedX != b.speedX || prevSpeedY != b.speedY;
 
-                        if (shouldDelete) bullets.removeElement(b);
+                        if (shouldDelete) bullets.removeElementAt(i);
                     }
 
                     // update grenades
@@ -160,7 +221,7 @@ public class Game extends GameCanvas implements Runnable {
                         grenade.speedX *= 0.95f;
                         grenade.speedY *= 0.99f;
 
-                        if (grenade.x < 0 || grenade.x > Level.LEVEL_SIZE || grenade.y < 0 || grenade.y > Level.LEVEL_SIZE) grenades.removeElement(grenade);
+                        if (grenade.x < 0 || grenade.x > Level.LEVEL_SIZE || grenade.y < 0 || grenade.y > Level.LEVEL_SIZE) grenades.removeElementAt(i);
                     }
 
                     for (int i = 0; i < player.reloadTimes.length; i++) {
@@ -180,7 +241,6 @@ public class Game extends GameCanvas implements Runnable {
                     if (offY > Level.LEVEL_SIZE * 8 - getHeight()) offY = Level.LEVEL_SIZE * 8 - getHeight();
                 }
 
-                // TODO: render the whole level in Image and draw visible region and figure out would it be faster or not
                 lvl.render(g, offX, offY, getWidth(), getHeight());
 
                 if (multiplayer != null) {
@@ -231,26 +291,23 @@ public class Game extends GameCanvas implements Runnable {
                     }
                 }
 
-                // TODO: precalculated cos and sin table
-                double cos = Math.cos(player.angle);
-                double sin = Math.sin(player.angle);
 
                 int cx = player.pixelsX() - offX + 4;
                 int cy = player.pixelsY() - offY + 4;
 
-                int transform = cos < 0 ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
+                int transform = player.aimCos < 0 ? Sprite.TRANS_MIRROR : Sprite.TRANS_NONE;
 
                 // draw player and other things
                 if (!player.isDied) {
                     g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, transform, cx - 4, cy - 4, Graphics.TOP | Graphics.LEFT);
 
                     if (player.hat != 0) {
-                        drawHat(player.pixelsX(), player.pixelsY(), transform, player.hat);
+                        drawHat(cx - 4, cy - 4, transform, player.hat);
                     }
 
                     drawWeapon(player.weapon, transform, cx, cy - 4, false);
 
-                    g.drawRegion(Resources.spritesheet, 54, 32, 5, 5, 0, cx + (int)(20 * cos), cy + (int)(20 * sin), Graphics.HCENTER | Graphics.VCENTER);
+                    g.drawRegion(Resources.spritesheet, 54, 32, 5, 5, 0, cx + (int)(20 * player.aimCos), cy + (int)(20 * player.aimSin), Graphics.HCENTER | Graphics.VCENTER);
 
                     if (player.reloadTimes[player.weapon] > 0) {
                         Resources.defaultFont.draw(g, "RELOADING... ", 0, 12);
@@ -280,68 +337,66 @@ public class Game extends GameCanvas implements Runnable {
                     } else {
                         g.drawRegion(Resources.spritesheet, 31, 32, 5, 5, 0, getWidth() - 5, 41, Graphics.TOP | Graphics.LEFT);
                     }
-                } else {
+                } else if (winnerId == 0) {
                     g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
-                    String deadText = "You died!\nScore: " + player.score + "\nPress 0 to revive.";
-                    Resources.defaultFont.draw(g, deadText,
-                            (getWidth() - Resources.defaultFont.stringWidth(deadText)) / 2,
-                            (getHeight() - Resources.defaultFont.stringHeight(deadText)) / 2);
+
+                    Resources.defaultFont.drawAligned(g, "You died!\nScore: " + player.score + "\nPress 0 to revive\nPress 5 to open chat",
+                            getWidth() / 2,
+                            getHeight() / 2 - 30, BMFont.CENTER
+                    );
+                }
+
+                if (winnerId != 0) {
+                    g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
+
+                    Resources.defaultFont.drawAligned(g, "ROUND END", getWidth() / 2, 10, BMFont.CENTER);
+                    Resources.defaultFont.drawAligned(g, "WAITING FOR ROUND BEGIN", getWidth() / 2, getHeight() - 20, BMFont.CENTER);
+
+                    drawLeaderboard(30, true);
+                }
+            }
+
+            if (timer != null && debug) {
+                Resources.tinyFont.draw(g, "fps: " + timer.fps + "\nframe: " + lastElapsed + " ms\nfree heap: " + Runtime.getRuntime().freeMemory() / 1024 + " KB", 0, 35);
+            }
+
+            if (screen != SCREEN_NONE) {
+                g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
+                int lineHeight = Resources.tinyFont.getLineHeight();
+
+                switch (screen) {
+                    case SCREEN_PAUSE:
+                        drawScreen(PAUSED_CHOICES, screenChoice);
+                        Resources.tinyFont.draw(g, "2: Up  8: Down  5: Select", 0, getHeight() - lineHeight);
+                        drawLeaderboard(90, false);
+                        break;
+                    case SCREEN_CHAT:
+
+                        int y = getHeight() - CHAT_PADDING - chatLines * lineHeight;
+
+                        if (y < CHAT_PADDING) y = CHAT_PADDING;
+
+                        Resources.tinyFont.draw(g, chatRenderText, CHAT_PADDING, y);
+                        Resources.tinyFont.draw(g, "5: Write  0: Back", 0, getHeight() - lineHeight);
+                        break;
+                    case SCREEN_SETTINGS:
+                        drawScreen(SETTINGS_CHOICES, settingChoice);
+                        Resources.tinyFont.draw(g, "2: Up  8: Down  5: Change", 0, getHeight() - lineHeight);
+                        break;
                 }
             }
 
             flushGraphics();
 
             long elapsed = System.currentTimeMillis() - frameStart;
-            long sleep = FRAME_TIME - elapsed;
+            lastElapsed = elapsed;
+            long sleep = 1000 / FPS_CHOICES[targetFpsChoice] - elapsed;
 
             if (sleep > 0) {
                 try { Thread.sleep(sleep); }
                 catch (InterruptedException e) { break; }
             }
         }
-    }
-
-    private void drawWeapon(byte weapon, int transform, int x, int y, boolean tinted) {
-        int wx;
-
-        switch (weapon) {
-            case 0:
-                wx = transform == Sprite.TRANS_NONE ? x : x - 14;
-                if (tinted) {
-                    g.drawRegion(Resources.spritesheet, 7, 16, 14, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                } else {
-                    g.drawRegion(Resources.spritesheet, 0, 0, 14, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                }
-                break;
-            case 1:
-                wx = transform == Sprite.TRANS_NONE ? x : x - 24;
-
-                if (tinted) {
-                    g.drawRegion(Resources.spritesheet, 21, 16, 24, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                } else {
-                    g.drawRegion(Resources.spritesheet, 14, 0, 24, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                }
-                break;
-            case 2:
-                wx = transform == Sprite.TRANS_NONE ? x : x - 32;
-
-                if (tinted) {
-                    g.drawRegion(Resources.spritesheet, 45, 16, 32, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                } else {
-                    g.drawRegion(Resources.spritesheet, 0, 8, 32, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
-                }
-                break;
-        }
-    }
-
-    public int getWeaponWidth(byte weapon) {
-        switch (weapon) {
-            case 0: return 14;
-            case 1: return 24;
-            case 2: return 32;
-        }
-
-        return 0;
     }
 
     public void addBullet(Bullet bullet) {
@@ -385,7 +440,184 @@ public class Game extends GameCanvas implements Runnable {
         timer = new Timer(60.f);
     }
 
-    public void drawHat(int playerX, int playerY, int transform, byte hat) {
+    public void disconnectedServer(String reason) {
+        this.shouldClose = true;
+        shootan.instance.showErrorScreen(reason);
+    }
+
+    public void roundEnd(int winnerId) {
+        this.winnerId = winnerId;
+        updateLeaderboard();
+    }
+
+    public void roundBegin() {
+        this.winnerId = 0;
+    }
+
+    public void addChatMessage(String message) {
+        if (message == null || message.length() == 0) return;
+
+        BMFont font = Resources.tinyFont;
+        int maxWidth = getWidth() - CHAT_PADDING * 2 - 4;
+
+        if (maxWidth <= 0) return;
+
+        StringBuffer cleaned = new StringBuffer();
+
+        for (int i = 0; i < message.length() && cleaned.length() < CHAT_MAX_MESSAGE; i++) {
+            char c = message.charAt(i);
+
+            if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+
+            if (c >= 32 && c != 127) {
+                cleaned.append(c);
+            }
+        }
+
+        String text = cleaned.toString();
+        StringBuffer line = new StringBuffer(64);
+
+        int pos = 0;
+
+        while (pos < text.length()) {
+            while (pos < text.length() && text.charAt(pos) == ' ') pos++;
+
+            if (pos >= text.length()) break;
+
+            int start = pos;
+
+            while (pos < text.length() && text.charAt(pos) != ' ') pos++;
+
+            String word = text.substring(start, pos);
+
+            if (line.length() > 0) {
+                String candidate = line.toString() + " " + word;
+
+                if (font.stringWidth(candidate) <= maxWidth) {
+                    line.append(' ').append(word);
+                    continue;
+                }
+
+                appendChatLine(line.toString());
+                line.setLength(0);
+            }
+
+            if (font.stringWidth(word) <= maxWidth) {
+                line.append(word);
+                continue;
+            }
+
+            for (int i = 0; i < word.length(); ) {
+                int next = i + 1;
+
+                char c = word.charAt(i);
+                if (c >= 0xD800 && c <= 0xDBFF && next < word.length()) {
+                    char low = word.charAt(next);
+                    if (low >= 0xDC00 && low <= 0xDFFF) next++;
+                }
+
+                String part = word.substring(i, next);
+                String candidate = line.toString() + part;
+
+                if (line.length() > 0 && font.stringWidth(candidate) > maxWidth) {
+                    appendChatLine(line.toString());
+                    line.setLength(0);
+                }
+
+                line.append(part);
+                i = next;
+            }
+        }
+
+        if (line.length() > 0) appendChatLine(line.toString());
+
+        chatRenderText = chatText.toString();
+    }
+
+    private void appendChatLine(String line) {
+        if (chatLines > 0) chatText.append('\n');
+
+        chatText.append(line);
+        chatLines++;
+
+        int maxLines = (getHeight() - CHAT_PADDING * 2) / Resources.tinyFont.getLineHeight();
+
+        if (maxLines < 1) maxLines = 1;
+
+        while (chatLines > maxLines) {
+            int end = 0;
+
+            while (end < chatText.length() && chatText.charAt(end) != '\n') {
+                end++;
+            }
+
+            if (end < chatText.length()) {
+                chatText.delete(0, end + 1);
+                chatLines--;
+            } else {
+                chatText.setLength(0);
+                chatLines = 0;
+            }
+        }
+    }
+
+    private void updateLeaderboard() {
+        int playerCount = multiplayer.remotePlayers.size() + 1;
+
+        if (leaderboard == null || leaderboard.length != playerCount) {
+            leaderboard = new Scorable[playerCount];
+        }
+
+        multiplayer.remotePlayers.copyInto(leaderboard);
+        leaderboard[leaderboard.length - 1] = player;
+
+        for (int i = 1; i < leaderboard.length; i++) {
+            Scorable player = leaderboard[i];
+            int j = i - 1;
+
+            while (j >= 0 && leaderboard[j].getScore() < player.getScore()) {
+                leaderboard[j + 1] = leaderboard[j];
+                j--;
+            }
+
+            leaderboard[j + 1] = player;
+        }
+    }
+
+    private void drawWeapon(byte weapon, int transform, int x, int y, boolean tinted) {
+        int wx;
+
+        switch (weapon) {
+            case 0:
+                wx = transform == Sprite.TRANS_NONE ? x : x - 14;
+                if (tinted) {
+                    g.drawRegion(Resources.spritesheet, 7, 16, 14, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                } else {
+                    g.drawRegion(Resources.spritesheet, 0, 0, 14, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                }
+                break;
+            case 1:
+                wx = transform == Sprite.TRANS_NONE ? x : x - 24;
+
+                if (tinted) {
+                    g.drawRegion(Resources.spritesheet, 21, 16, 24, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                } else {
+                    g.drawRegion(Resources.spritesheet, 14, 0, 24, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                }
+                break;
+            case 2:
+                wx = transform == Sprite.TRANS_NONE ? x : x - 32;
+
+                if (tinted) {
+                    g.drawRegion(Resources.spritesheet, 45, 16, 32, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                } else {
+                    g.drawRegion(Resources.spritesheet, 0, 8, 32, 8, transform, wx, y, Graphics.TOP | Graphics.LEFT);
+                }
+                break;
+        }
+    }
+
+    private void drawHat(int playerX, int playerY, int transform, byte hat) {
         switch (hat) {
             case 0: return; // no hat
             case 1:
@@ -396,6 +628,33 @@ public class Game extends GameCanvas implements Runnable {
                 return;
             case 3:
                 g.drawRegion(Resources.spritesheet, 46, 0, 7, 3, transform, playerX, playerY + 1, Graphics.TOP | Graphics.LEFT);
+        }
+    }
+
+    private void drawScreen(String[] choices, int choice) {
+        for (int i = 0; i < choices.length; i++) {
+            int y = 20 + 15 * i;
+            Resources.defaultFont.draw(g, choices[i], 10, y);
+
+            if (i == choice) {
+                g.setColor(0xFFFFFF);
+                g.drawLine(10, y + 14, 10 + Resources.defaultFont.stringWidth(choices[i]), y + 14);
+            }
+        }
+    }
+
+    private void drawLeaderboard(int y, boolean leader) {
+        if (leaderboard == null) return;
+
+        int x = leader ? 15 : 10;
+
+        if (leader) {
+            g.drawRegion(Resources.spritesheet, 0, 21, 7, 6, 0, 4, y + 7, Graphics.TOP | Graphics.LEFT);
+        }
+
+        for (int i = 0; i < leaderboard.length; i++) {
+            Resources.defaultFont.draw(g, leaderboard[i].getUsername(), x, y + 12 * i);
+            Resources.defaultFont.drawAligned(g, String.valueOf(leaderboard[i].getScore()), getWidth() - 5, y + 12 * i, BMFont.RIGHT);
         }
     }
 
@@ -470,6 +729,11 @@ public class Game extends GameCanvas implements Runnable {
             if (inputRight || inputLeft) player.onLadder = false;
         }
 
+        if (syncAimDirection && ((inputLeft && player.aimCos > 0) || (inputRight && player.aimCos < 0))) {
+            player.angle = Math.PI - player.angle;
+            player.updateAim();
+        }
+
         if (inputRotateRight || inputRotateLeft) {
             if (inputRotateRight) player.angle += 0.06f;
             if (inputRotateLeft) player.angle -= 0.06f;
@@ -477,6 +741,8 @@ public class Game extends GameCanvas implements Runnable {
             if (multiplayer != null) {
                 multiplayer.sendAngle((float) Math.toDegrees(player.angle));
             }
+
+            player.updateAim();
         }
 
         if (!player.onLadder) {
@@ -523,68 +789,208 @@ public class Game extends GameCanvas implements Runnable {
         if (keyCode == KEY_NUM3) inputRotateRight = pressed;
     }
 
+    private void resetKeys() {
+        inputLeft = false;
+        inputRight = false;
+        inputJump = false;
+        inputRotateLeft = false;
+        inputRotateRight = false;
+        inputClimbDown = false;
+        inputClimbUp = false;
+    }
+
+    private void updateSettings() {
+        SETTINGS_CHOICES[0] = "Target FPS: " + FPS_CHOICES[targetFpsChoice] + " FPS";
+        SETTINGS_CHOICES[1] = "Debug stats: " + (debug ? "YES" : "NO");
+        SETTINGS_CHOICES[2] = "Sync aim with direction: " + (syncAimDirection ? "YES" : "NO");
+    }
+
+    private void changeSetting(int settingIndex) {
+        switch (settingIndex) {
+            case 0:
+                targetFpsChoice = (targetFpsChoice + 1) % 3;
+                SETTINGS_CHOICES[0] = "Target FPS: " + FPS_CHOICES[targetFpsChoice] + " FPS";
+                break;
+            case 1:
+                debug = !debug;
+                SETTINGS_CHOICES[1] = "Debug stats: " + (debug ? "YES" : "NO");
+                break;
+            case 2:
+                syncAimDirection = !syncAimDirection;
+                SETTINGS_CHOICES[2] = "Sync aim with direction: " + (syncAimDirection ? "YES" : "NO");
+                break;
+        }
+    }
+
     protected void keyPressed(int keyCode) {
+        if (player != null && player.isDied && screen == SCREEN_NONE) {
+            if (keyCode == KEY_NUM0) {
+                if (multiplayer != null) {
+                    multiplayer.sendRevive();
+                } else {
+                    player.isDied = false;
+                }
+
+                return;
+            }
+
+            if (keyCode == KEY_NUM5 && multiplayer != null) {
+                screen = SCREEN_CHAT;
+                fromDeathScreen = true;
+                return;
+            }
+        }
+
+        if (screen != SCREEN_NONE) {
+            switch (screen) {
+                case SCREEN_PAUSE: {
+                    if (keyCode == KEY_NUM5) {
+                        switch (screenChoice) {
+                            case 0: screen = SCREEN_NONE; break;
+                            case 1: if (multiplayer != null) screen = SCREEN_CHAT; break;
+                            case 2: screen = SCREEN_SETTINGS; break;
+                            case 3:
+                                shouldClose = true;
+                                if (multiplayer != null) multiplayer.close();
+                                shootan.instance.display.setCurrent(shootan.instance.mainMenu);
+                                break;
+                        }
+
+                        return;
+                    }
+
+                    if (keyCode == KEY_NUM2) screenChoice = (screenChoice - 1) % PAUSED_CHOICES.length;
+                    if (keyCode == KEY_NUM8) screenChoice = (screenChoice + 1) % PAUSED_CHOICES.length;
+
+                    if (screenChoice < 0) screenChoice = PAUSED_CHOICES.length - 1;
+
+                    break;
+                }
+
+                case SCREEN_CHAT: {
+                    if (keyCode == KEY_NUM0) {
+                        screen = fromDeathScreen ? SCREEN_NONE : SCREEN_PAUSE;
+                        fromDeathScreen = false;
+                    }
+
+                    if (keyCode == KEY_NUM5) {
+                        shootan.instance.display.setCurrent(chatBox);
+                        return;
+                    }
+                    break;
+                }
+
+                case SCREEN_SETTINGS: {
+                    if (keyCode == KEY_NUM0) screen = SCREEN_PAUSE;
+                    if (keyCode == KEY_NUM2) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
+                    if (keyCode == KEY_NUM8) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
+
+                    if (settingChoice < 0) settingChoice = SETTINGS_CHOICES.length - 1;
+
+                    if (keyCode == KEY_NUM5) changeSetting(settingChoice);
+
+                    break;
+                }
+            }
+
+            return;
+        }
+
         updateKeys(keyCode, true);
 
-        if (keyCode == KEY_STAR) {
-            do {
-                player.weapon++;
-                player.weapon %= 3;
-            } while (!player.weapons[player.weapon]);
-
-            if (multiplayer != null) {
-                multiplayer.sendChangeWeapon(player.weapon);
-            }
+        if (keyCode == KEY_NUM0) {
+            screen = SCREEN_PAUSE;
+            resetKeys();
+            updateLeaderboard();
+            return;
         }
 
-        if ((keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) && !player.isDied && player.reloadTimes[player.weapon] == 0) {
-            if (multiplayer != null) {
-                multiplayer.sendShoot((float) player.angle);
-            } else {
-                Bullet bullet = new Bullet();
-                bullet.x = player.x;
-                bullet.y = player.y;
-                bullet.angle = (float) player.angle;
-                bullet.speedY = (float) Math.sin(player.angle) * 0.6f;
-                bullet.speedX = (float) Math.cos(player.angle) * 0.6f;
-                bullet.weaponId = player.weapon;
-                bullet.id = bullets.size();
-                bullet.ownerId = player.id;
+        if (player != null) {
+            if (keyCode == KEY_STAR) {
+                do {
+                    player.weapon++;
+                    player.weapon %= 3;
+                } while (!player.weapons[player.weapon]);
 
-                addBullet(bullet);
+                if (multiplayer != null) {
+                    multiplayer.sendChangeWeapon(player.weapon);
+                }
             }
 
-            player.reloadTimes[player.weapon] = RELOAD_TIME[player.weapon];
-        }
+            if ((keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) && !player.isDied && player.reloadTimes[player.weapon] == 0) {
+                if (multiplayer != null) {
+                    multiplayer.sendShoot((float) player.angle);
+                } else {
+                    Bullet bullet = new Bullet();
+                    bullet.x = player.x;
+                    bullet.y = player.y;
+                    bullet.angle = (float) player.angle;
+                    bullet.speedY = (float) Math.sin(player.angle) * 0.6f;
+                    bullet.speedX = (float) Math.cos(player.angle) * 0.6f;
+                    bullet.weaponId = player.weapon;
+                    bullet.id = bullets.size();
+                    bullet.ownerId = player.id;
 
-        if (keyCode == KEY_NUM9 && !player.isDied && player.grenade) {
-            if (multiplayer != null) {
-                multiplayer.sendThrowGrenade((float) player.angle);
-            } else {
-                Grenade grenade = new Grenade();
-                grenade.x = player.x + 0.5f;
-                grenade.y = player.y + 0.5f;
-                grenade.speedY = (float) Math.sin(player.angle) * 0.7f;
-                grenade.speedX = (float) Math.cos(player.angle) * 0.7f;
-                grenade.id = grenades.size();
-                grenade.lifeTime = 125;
+                    addBullet(bullet);
+                }
 
-                addGrenade(grenade);
+                player.reloadTimes[player.weapon] = RELOAD_TIME[player.weapon];
             }
 
-            player.grenade = false;
-        }
+            if (keyCode == KEY_NUM9 && !player.isDied && player.grenade) {
+                if (multiplayer != null) {
+                    multiplayer.sendThrowGrenade((float) player.angle);
+                } else {
+                    Grenade grenade = new Grenade();
+                    grenade.x = player.x + 0.5f;
+                    grenade.y = player.y + 0.5f;
+                    grenade.speedY = (float) Math.sin(player.angle) * 0.7f;
+                    grenade.speedX = (float) Math.cos(player.angle) * 0.7f;
+                    grenade.id = grenades.size();
+                    grenade.lifeTime = 125;
 
-        if (keyCode == KEY_NUM0 && player.isDied) {
-            if (multiplayer != null) {
-                multiplayer.sendRevive();
-            } else {
-                player.isDied = false;
+                    addGrenade(grenade);
+                }
+
+                player.grenade = false;
             }
         }
     }
 
     protected void keyReleased(int keyCode) {
         updateKeys(keyCode, false);
+    }
+
+    public void commandAction(Command command, Displayable displayable) {
+        if (command == chatSend) {
+            String msg = filterChatMessage(chatBox.getString());
+
+            if (msg.length() > 0) {
+                try {
+                    multiplayer.sendChatMessage(msg);
+                } catch (IOException ignored) {}
+            }
+        }
+
+        shootan.instance.display.setCurrent(this);
+        chatBox.setString(null);
+    }
+
+    private static String filterChatMessage(String text) {
+        StringBuffer result = new StringBuffer();
+
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+
+            if (c == '\n' || c == '\r') {
+                c = ' ';
+            }
+
+            if (c >= 32 && c <= 126) {
+                result.append(c);
+            }
+        }
+
+        return result.toString().trim();
     }
 }

@@ -10,14 +10,13 @@ The game is now **playable** on a real device (tested on Nokia E65).
 The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
 
 ## TODO
-- [ ] leaderboards
+- [x] leaderboards
 - [ ] rewrite font rendering
 - [ ] local bluetooth multiplayer mode
 - [ ] cute menus
-- [ ] chat
-- [ ] end round screen
+- [x] chat
+- [x] end round screen
 - [ ] pause menu
-- [ ] zombies for offline mode (maybe)
 - [ ] code review and optimization
 - [ ] maybe scale textures by 2 (because on 240x320 screen it looks so tiny)
 - [ ] make space used more effectively in [spritesheet](./res/spritesheet.png)
@@ -31,4 +30,4 @@ The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
 - [compress-j2me](https://github.com/igorgatis/compress-j2me) - decompressing levels
 - [rd-132211](https://github.com/thecodeofnotch/rd-132211) - the base game uses timer and AABB from this game
 - [grixel-acme](https://www.dafont.com/es/grixel-acme-9.font) - font that raylib default font inspired on
-- [tiny-font](https://www.dafont.com/tiny.font) - for player names
+- [tiny-font](https://www.ffonts.net/6px-Normal.font) - for player names

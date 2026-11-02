@@ -1,4 +1,4 @@
-public class RemotePlayer {
+public class RemotePlayer implements Scorable {
     public String username;
     public int id;
 
@@ -9,7 +9,7 @@ public class RemotePlayer {
     public byte weapon;
     public boolean isDied = false;
     public int transform;
-    public int score = 0;
+    public int score;
 
     public RemotePlayer(int id, String username, int x, int y, byte hp, byte hat, byte weapon, boolean isDied) {
         this.id = id;
@@ -21,4 +21,7 @@ public class RemotePlayer {
         this.weapon = weapon;
         this.isDied = isDied;
     }
+
+    public int getScore() { return this.score; }
+    public String getUsername() { return this.username; }
 }

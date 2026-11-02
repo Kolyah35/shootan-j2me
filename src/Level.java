@@ -118,13 +118,13 @@ public class Level {
     }
 
     public static Level createFromRes(String name) throws IOException {
-        InputStream stream = new Object().getClass().getResourceAsStream(name);
+        DataInputStream stream = new DataInputStream(new Object().getClass().getResourceAsStream(name));
 
         byte[] foreground = new byte[LEVEL_SIZE*LEVEL_SIZE];
-        stream.read(foreground);
+        stream.readFully(foreground);
 
         byte[] background = new byte[LEVEL_SIZE*LEVEL_SIZE];
-        stream.read(background);
+        stream.readFully(background);
 
         int collectibleCount = Utils.readIntLE(stream);
         Collectible[] collectibles = new Collectible[collectibleCount];
@@ -159,7 +159,7 @@ public class Level {
             for (int x = minX; x < maxX; x++) {
                 int idx = y * LEVEL_SIZE + x;
 
-                if (foreground[idx] == 0 && background[idx] != 0) {
+                if ((foreground[idx] == 0 || foreground[idx] == BLOCK_LADDER || foreground[idx] == BLOCK_GLASS) && background[idx] != 0) {
                     g.drawRegion(Resources.blocks, (background[idx] - 1) * 8, 8, 8, 8, 0, x * 8 - offX, y * 8 - offY, 0);
                 }
 
@@ -174,7 +174,7 @@ public class Level {
         for (int i = 0; i < collectibles.length; i++) {
             Collectible coll = collectibles[i];
 
-            int phase = (int)((System.currentTimeMillis() / 500) & 9);
+            int phase = (int)((System.currentTimeMillis() / 500) % COLLECTIBLES_OFFSET.length);
             int offset = COLLECTIBLES_OFFSET[phase];
             int x = coll.x - offX;
             int y = coll.y - offY;
@@ -289,15 +289,13 @@ public class Level {
 
     Collectible findNearestCollectible(float x, float y) {
         Collectible nearest = null;
-        int nearestDist = 99999999;
+        int nearestDist = Integer.MAX_VALUE;
 
         int tx = (int)(x * 8);
         int ty = (int)(y * 8);
 
         for (int i = 0; i < collectibles.length; i++) {
-            int dist = (int)Math.sqrt(
-                    (collectibles[i].x - tx) * (collectibles[i].x - tx) + (collectibles[i].y - ty) * (collectibles[i].y - ty)
-            );
+            int dist = (collectibles[i].x - tx) * (collectibles[i].x - tx) + (collectibles[i].y - ty) * (collectibles[i].y - ty);
 
             if (dist < nearestDist) {
                 nearestDist = dist;
