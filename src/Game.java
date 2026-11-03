@@ -126,7 +126,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     private final TextBox chatBox = new TextBox("Write a message", null, 255, TextField.ANY);
     private final Command chatSend = new Command("Send", Command.OK, 1);
-    private final Command pauseMenu = new Command("Pause", Command.BACK, 1);
 
     private static final int CHAT_PADDING = 6;
     private static final int CHAT_MAX_MESSAGE = 512;
@@ -137,9 +136,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     public Game(String playerName, String host, boolean offline, byte hatId) throws IOException {
         super(false);
-
-        addCommand(pauseMenu);
-        setCommandListener(this);
 
         GameSettings saved = shootan.instance.settings;
         targetFpsChoice = saved.targetFpsChoice;
@@ -1052,7 +1048,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                     if (keyCode == KEY_NUM2 || action == UP) pauseChoice = (pauseChoice - 1) % PAUSED_CHOICES.length;
                     if (keyCode == KEY_NUM8 || action == DOWN) pauseChoice = (pauseChoice + 1) % PAUSED_CHOICES.length;
 
-                    if (keyCode == KEY_NUM0) {
+                    if (keyCode == KEY_NUM0 || keyCode == -7) {
                         pauseChoice = 0;
                         screen = SCREEN_NONE;
                     }
@@ -1063,7 +1059,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 }
 
                 case SCREEN_CHAT: {
-                    if (keyCode == KEY_NUM0) {
+                    if (keyCode == KEY_NUM0 || keyCode == -7) {
                         screen = fromDeathScreen ? SCREEN_NONE : SCREEN_PAUSE;
                         fromDeathScreen = false;
                     }
@@ -1076,7 +1072,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 }
 
                 case SCREEN_SETTINGS: {
-                    if (keyCode == KEY_NUM0) screen = SCREEN_PAUSE;
+                    if (keyCode == KEY_NUM0 || keyCode == -7) screen = SCREEN_PAUSE;
                     if (keyCode == KEY_NUM2 || action == UP) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
                     if (keyCode == KEY_NUM8 || action == DOWN) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
 
@@ -1093,7 +1089,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
         updateKeys(keyCode, true);
 
-        if (keyCode == KEY_NUM0) {
+        if (keyCode == KEY_NUM0 || keyCode == -7) {
             screen = SCREEN_PAUSE;
             resetKeys();
             updateLeaderboard();
@@ -1119,17 +1115,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     }
 
     public void commandAction(Command command, Displayable displayable) {
-        if (command == pauseMenu) {
-            switch (screen) {
-                case SCREEN_SETTINGS:
-                case SCREEN_CHAT:
-                case SCREEN_NONE: screen = SCREEN_PAUSE; break;
-                case SCREEN_PAUSE: screen = SCREEN_NONE; break;
-            }
-
-            return;
-        }
-
         if (command == chatSend) {
             String msg = filterChatMessage(chatBox.getString());
 

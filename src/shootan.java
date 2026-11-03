@@ -19,7 +19,9 @@ public class shootan extends MIDlet implements CommandListener {
 
     TextField username = new TextField("Player name", "Player-" + Math.abs(rand.nextLong()) % 1000, 32, TextField.ANY);
     TextField hostname = new TextField("Server IP", "sffempire.ru", 256, TextField.ANY);
-    List hatList = new List("Hats", List.IMPLICIT, new String[]{"None", "Wizard", "Loofy", "Sunglasses"}, null);
+
+    Image[] hatsPreview = new Image[4];
+    List hatList;
 
     Command reconnect = new Command("Reconnect", Command.OK, 2);
     Command backToMenu = new Command("Back to menu", Command.EXIT, 1);
@@ -31,6 +33,12 @@ public class shootan extends MIDlet implements CommandListener {
         started = true;
         instance = this;
         display = Display.getDisplay(this);
+
+        hatsPreview[1] = Image.createImage(Resources.spritesheet, 40, 8, 8, 8, 0);
+        hatsPreview[2] = Image.createImage(Resources.spritesheet, 38, 0, 8, 8, 0);
+        hatsPreview[3] = Image.createImage(Resources.spritesheet, 46, 0, 7, 7, 0);
+
+        hatList = new List("Hats", List.IMPLICIT, new String[]{"None", "Wizard", "Loofy", "Sunglasses"}, hatsPreview);
 
         settings = GameSettings.load();
         if (settings.username != null) username.setString(settings.username);
