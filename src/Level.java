@@ -148,7 +148,7 @@ public class Level {
         try {
             int spawnpointCount = Utils.readIntLE(stream);
 
-            if (spawnpointCount != 0 && spawnpointCount <= stream.available() / 2) {
+            if (spawnpointCount != 0 && spawnpointCount <= stream.available() / 8) {
                 spawnpoints = new float[spawnpointCount][2];
 
                 for (int i = 0; i < spawnpointCount; i++) {
@@ -157,8 +157,7 @@ public class Level {
                 }
             }
         }
-        catch (Exception ignored) {}
-        finally { spawnpoints = null; }
+        catch (Exception ignored) { spawnpoints = null; }
 
         return new Level(background, foreground, collectibles, spawnpoints);
     }

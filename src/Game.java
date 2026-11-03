@@ -263,7 +263,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                                 grenade.lifeTime--;
 
                                 float dx = player.x - grenade.x;
-                                float dy = player.x - grenade.y;
+                                float dy = player.y - grenade.y;
 
                                 if (grenade.lifeTime <= 0) {
                                     if ((dx < GRENADE_BURST_RADIUS && dx > -GRENADE_BURST_RADIUS) || (dy < GRENADE_BURST_RADIUS && dy > -GRENADE_BURST_RADIUS)) {
@@ -470,6 +470,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             lastElapsed = elapsed;
             long sleep = 1000 / FPS_CHOICES[targetFpsChoice] - elapsed;
 
+            // debug
             if (System.currentTimeMillis() - lastDebugUpdate >= 1000 && timer != null) {
                 maxNetMs = Math.max(maxNetMs, netMs);
                 maxDrawMs = Math.max(maxDrawMs, drawMs);
@@ -483,6 +484,9 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                             "flush: " + flushMs + "ms max: " + maxFlushMs + " ms\n" +
                             "free heap: " + Runtime.getRuntime().freeMemory() / 1024 + " KB";
                 lastDebugUpdate = System.currentTimeMillis();
+                maxFlushMs = 0;
+                maxNetMs = 0;
+                maxDrawMs = 0;
             }
 
             if (sleep > 0) {
@@ -895,7 +899,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 int dx = player.pixelsX() - coll.x;
                 int dy = player.pixelsY() - coll.y;
 
-                if (dx * dx + dy * dy < 8) {
+                if (dx * dx + dy * dy < 64) {
                     switch (coll.type) {
                         case Level.COLLECTIBLE_SHOTGUN:
                             if (!player.weapons[1]) {

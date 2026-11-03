@@ -14,7 +14,7 @@ public class Resources {
             defaultFont = BMFont.load("/grixel.fnt");
             tinyFont = BMFont.load("/tiny.fnt");
         } catch (IOException e) {
-            throw new RuntimeException();
+            throw new RuntimeException(e.toString());
         }
     }
 }
