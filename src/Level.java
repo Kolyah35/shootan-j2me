@@ -4,47 +4,49 @@ import javax.microedition.lcdui.Graphics;
 import java.io.*;
 
 public class Level {
-    public static int LEVEL_SIZE = 128;
+    public static final int LEVEL_SIZE = 128;
     private final byte[] foreground;
     private final byte[] background;
 
-    public static byte COLLECTIBLE_NONE = 0;
-    public static byte COLLECTIBLE_SHOTGUN = 1;
-    public static byte COLLECTIBLE_SNIPER = 2;
-    public static byte COLLECTIBLE_MEDKIT = 3;
-    public static byte COLLECTIBLE_GRENADE = 4;
+    public static final byte COLLECTIBLE_NONE = 0;
+    public static final byte COLLECTIBLE_SHOTGUN = 1;
+    public static final byte COLLECTIBLE_SNIPER = 2;
+    public static final byte COLLECTIBLE_MEDKIT = 3;
+    public static final byte COLLECTIBLE_GRENADE = 4;
 
-    public static byte BLOCK_AIR = 0;
-    public static byte BLOCK_GRASS = 1;
-    public static byte BLOCK_DIRT = 2;
-    public static byte BLOCK_BRICK = 3;
-    public static byte BLOCK_LADDER = 4;
-    public static byte BLOCK_STONE_BRICK = 5;
-    public static byte BLOCK_GLASS = 6;
-    public static byte BLOCK_LEAVES = 7;
-    public static byte BLOCK_WOOD = 8;
-    public static byte BLOCK_BOX = 9;
+    public static final byte BLOCK_AIR = 0;
+    public static final byte BLOCK_GRASS = 1;
+    public static final byte BLOCK_DIRT = 2;
+    public static final byte BLOCK_BRICK = 3;
+    public static final byte BLOCK_LADDER = 4;
+    public static final byte BLOCK_STONE_BRICK = 5;
+    public static final byte BLOCK_GLASS = 6;
+    public static final byte BLOCK_LEAVES = 7;
+    public static final byte BLOCK_WOOD = 8;
+    public static final byte BLOCK_BOX = 9;
 
     public static class Collectible {
         public byte type;
         public int x; // pixels
         public int y; // pixels
-        public int respawnTime; // millis
-        public boolean isSent;
+        public int respawnTime;
 
         public Collectible(float x, float y, byte type) {
             this.x = (int)(x * 8);
             this.y = (int)(y * 8);
             this.type = type;
+            this.respawnTime = 0;
         }
     }
 
-    private final Collectible[] collectibles;
+    public final Collectible[] collectibles;
+    public float[][] spawnpoints;
 
-    private Level(byte[] background, byte[] foreground, Collectible[] collectibles) {
+    private Level(byte[] background, byte[] foreground, Collectible[] collectibles, float[][] spawnpoints) {
         this.background = background;
         this.foreground = foreground;
         this.collectibles = collectibles;
+        this.spawnpoints = spawnpoints;
 
         for (int i = 0; i < LEVEL_SIZE * LEVEL_SIZE; i++) {
             // remove illegal blocks
@@ -113,7 +115,7 @@ public class Level {
         return new Level(
                 uncompressedBackground.toByteArray(),
                 uncompressedForeground.toByteArray(),
-                collectibles
+                collectibles, null
         );
     }
 
@@ -135,13 +137,30 @@ public class Level {
             byte type = (byte) stream.read();
 
             Collectible coll = new Collectible(x, y, type);
-            coll.respawnTime = (int)(Utils.readFloatLE(stream) * 1000);
-            stream.skip(5); // skip unused
+            int skip = 9;
+            while (skip-- > 0) stream.readByte(); // skip unused
 
             collectibles[i] = coll;
         }
 
-        return new Level(background, foreground, collectibles);
+        float[][] spawnpoints = null;
+
+        try {
+            int spawnpointCount = Utils.readIntLE(stream);
+
+            if (spawnpointCount != 0 && spawnpointCount <= stream.available() / 2) {
+                spawnpoints = new float[spawnpointCount][2];
+
+                for (int i = 0; i < spawnpointCount; i++) {
+                    spawnpoints[i][0] = Utils.readFloatLE(stream);
+                    spawnpoints[i][1] = Utils.readFloatLE(stream);
+                }
+            }
+        }
+        catch (Exception ignored) {}
+        finally { spawnpoints = null; }
+
+        return new Level(background, foreground, collectibles, spawnpoints);
     }
 
     private static final byte[] COLLECTIBLES_OFFSET = {
@@ -176,6 +195,8 @@ public class Level {
 
         for (int i = 0; i < collectibles.length; i++) {
             Collectible coll = collectibles[i];
+
+            if (coll.respawnTime > 0) continue;
 
             int x = coll.x - offX;
             int y = coll.y - offY;

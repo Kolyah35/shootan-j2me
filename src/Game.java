@@ -3,23 +3,23 @@ import javax.microedition.lcdui.game.GameCanvas;
 import javax.microedition.lcdui.game.Sprite;
 
 import java.io.*;
+import java.util.Random;
 import java.util.Vector;
 
 public class Game extends GameCanvas implements Runnable, CommandListener {
-    //    public static final int[] MAX_BULLETS = {20, 12, 4};
-//    public static final float[] BULLET_SPEED = {0.6f, 0.7f, 0.8f};
+//    public static final int[] MAX_BULLETS = {20, 12, 4};
+    public static final float[] BULLET_SPEED = {0.6f, 0.7f, 0.8f};
     public static final int[] RELOAD_TIME = {15, 80, 105};
 
-//    public static final int GRENADE_BURST_RADIUS = 3;
-//    public static final int GRENADE_DAMAGE = 50;
-//    public static final float GRENADE_SPEED = 0.7f;
-//    public static final int GRENADE_LIFETIME = 125;
+    public static final int GRENADE_BURST_RADIUS = 3;
+    public static final int GRENADE_DAMAGE = 50;
+    public static final float GRENADE_SPEED = 0.7f;
+    public static final int GRENADE_LIFETIME = 125;
 
     public static final int SCREEN_NONE = 0;
     public static final int SCREEN_PAUSE = 1;
     public static final int SCREEN_CHAT = 2;
     public static final int SCREEN_SETTINGS = 3;
-    long ticks = 0;
 
     public Multiplayer multiplayer = null;
     public Level lvl = null;
@@ -33,9 +33,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private int settingChoice = 0;
     private static final String[] SETTINGS_CHOICES = new String[]{"Target FPS: 30 FPS", "Debug stats: NO", "Sync aim with direction: YES"};
 
-    private boolean inputClimbUp = false;
+    private boolean inputClimbUpJump = false;
     private boolean inputClimbDown = false;
-    private boolean inputJump = false;
     private boolean inputLeft = false;
     private boolean inputRight = false;
     private boolean inputRotateLeft = false;
@@ -45,6 +44,9 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     public boolean shouldClose = false;
     public int screen = SCREEN_NONE;
+
+    public long lastMsgTime = -1000;
+    public boolean checkedChat = true;
 
     public static class Player extends Entity implements Scorable {
         public String username;
@@ -75,6 +77,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
         public String getUsername() { return this.username; }
 
+        private Random rand;
+
         public void updateAim() {
             if (angle != lastAngle) {
                 lastAngle = angle;
@@ -82,11 +86,20 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 aimSin = Math.sin(lastAngle);
             }
         }
+
+        public void respawn(Level lvl) {
+            if (rand == null) rand = new Random();
+
+            if (lvl.spawnpoints != null) {
+                int idx = rand.nextInt(lvl.spawnpoints.length);
+                x = lvl.spawnpoints[idx][0];
+                y = lvl.spawnpoints[idx][1];
+            }
+        }
     };
 
     public static class Bullet extends Entity {
         public int id;
-        public float angle;
         public int ownerId;
         public int weaponId;
     };
@@ -113,6 +126,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     private final TextBox chatBox = new TextBox("Write a message", null, 255, TextField.ANY);
     private final Command chatSend = new Command("Send", Command.OK, 1);
+    private final Command pauseMenu = new Command("Pause", Command.BACK, 1);
 
     private static final int CHAT_PADDING = 6;
     private static final int CHAT_MAX_MESSAGE = 512;
@@ -123,6 +137,9 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     public Game(String playerName, String host, boolean offline, byte hatId) throws IOException {
         super(false);
+
+        addCommand(pauseMenu);
+        setCommandListener(this);
 
         GameSettings saved = shootan.instance.settings;
         targetFpsChoice = saved.targetFpsChoice;
@@ -140,6 +157,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         player.hat = (byte) hatId;
 
         chatBox.setInitialInputMode("MIDP_LOWERCASE_LATIN");
+        chatBox.addCommand(chatSend);
         chatBox.addCommand(new Command("Back", Command.CANCEL, 2));
         chatBox.setCommandListener(this);
     }
@@ -170,6 +188,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             } catch (IOException e) {
                 throw new RuntimeException("Failed to load level from res. Place your world.dat into res folder of JAR file.");
             }
+
+            player.respawn(lvl);
         } else {
             multiplayer.connect();
         }
@@ -196,66 +216,94 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
             long drawStart = 0;
 
-            if (player != null && lvl != null) {
+            if (lvl != null) {
                 if (multiplayer != null || screen == SCREEN_NONE) {
                     timer.advanceTime();
-                }
 
-                for (int tick = 0; tick < timer.ticks; tick++) {
-                    if (!player.isDied) {
-                        tickPlayer();
-                    }
-
-                    // update bullets
-                    for (int i = bullets.size() - 1; i >= 0; i--) {
-                        Bullet b = (Bullet)bullets.elementAt(i);
-
-                        float prevSpeedX = b.speedX;
-                        float prevSpeedY = b.speedY;
-
-                        lvl.moveEntity(b, 0.3f, 0.2f);
-
-                        boolean shouldDelete =
-                                b.x < 0 || b.x > Level.LEVEL_SIZE || b.y < 0 || b.y > Level.LEVEL_SIZE || prevSpeedX != b.speedX || prevSpeedY != b.speedY;
-
-                        if (shouldDelete) bullets.removeElementAt(i);
-                    }
-
-                    // update grenades
-                    for (int i = grenades.size() - 1; i >= 0; i--) {
-                        Grenade grenade = (Grenade)grenades.elementAt(i);
-
-                        grenade.speedY += 0.02f;
-
-                        float prevSpeedX = grenade.speedX;
-                        // float prevSpeedY = grenade.speedY;
-
-                        lvl.moveEntity(grenade, 0.5f, 0.5f);
-
-                        if (prevSpeedX != grenade.speedX) grenade.speedX *= -1;
-                        if (grenade.speedX > -0.05f && grenade.speedX < 0.05f) grenade.speedX = 0;
-
-                        grenade.speedX *= 0.95f;
-                        grenade.speedY *= 0.99f;
-
-                        if (grenade.x < 0 || grenade.x > Level.LEVEL_SIZE || grenade.y < 0 || grenade.y > Level.LEVEL_SIZE) grenades.removeElementAt(i);
-                    }
-
-                    for (int i = 0; i < player.reloadTimes.length; i++) {
-                        if (player.reloadTimes[i] > 0) {
-                            player.reloadTimes[i]--;
+                    for (int tick = 0; tick < timer.ticks; tick++) {
+                        if (!player.isDied) {
+                            tickPlayer();
                         }
+
+                        // update bullets
+                        for (int i = bullets.size() - 1; i >= 0; i--) {
+                            Bullet b = (Bullet) bullets.elementAt(i);
+
+                            float prevSpeedX = b.speedX;
+                            float prevSpeedY = b.speedY;
+
+                            lvl.moveEntity(b, 0.3f, 0.2f);
+
+                            boolean shouldDelete =
+                                    b.x < 0 || b.x > Level.LEVEL_SIZE || b.y < 0 || b.y > Level.LEVEL_SIZE || prevSpeedX != b.speedX || prevSpeedY != b.speedY;
+
+                            if (shouldDelete) bullets.removeElementAt(i);
+                        }
+
+                        // update grenades
+                        for (int i = grenades.size() - 1; i >= 0; i--) {
+                            Grenade grenade = (Grenade) grenades.elementAt(i);
+
+                            grenade.speedY += 0.02f;
+
+                            float prevSpeedX = grenade.speedX;
+                            // float prevSpeedY = grenade.speedY;
+
+                            lvl.moveEntity(grenade, 0.5f, 0.5f);
+
+                            if (prevSpeedX != grenade.speedX) grenade.speedX *= -1;
+                            if (grenade.speedX > -0.05f && grenade.speedX < 0.05f) grenade.speedX = 0;
+
+                            grenade.speedX *= 0.95f;
+                            grenade.speedY *= 0.99f;
+
+                            boolean shouldDelete = grenade.x < 0 || grenade.x > Level.LEVEL_SIZE || grenade.y < 0 || grenade.y > Level.LEVEL_SIZE;
+
+                            if (multiplayer == null) {
+                                grenade.lifeTime--;
+
+                                float dx = player.x - grenade.x;
+                                float dy = player.x - grenade.y;
+
+                                if (grenade.lifeTime <= 0) {
+                                    if ((dx < GRENADE_BURST_RADIUS && dx > -GRENADE_BURST_RADIUS) || (dy < GRENADE_BURST_RADIUS && dy > -GRENADE_BURST_RADIUS)) {
+                                        // player in offline mode the only one
+                                        player.hp -= GRENADE_DAMAGE;
+
+                                        if (player.hp <= 0) {
+                                            player.isDied = true;
+                                        }
+                                    }
+
+                                    shouldDelete = true;
+                                }
+                            }
+
+                            if (shouldDelete) grenades.removeElementAt(i);
+                        }
+
+                        for (int i = 0; i < player.reloadTimes.length; i++) {
+                            if (player.reloadTimes[i] > 0) {
+                                player.reloadTimes[i]--;
+                            }
+                        }
+
+                        if (multiplayer == null && lvl.collectibles != null) {
+                            for (int i = 0; i < lvl.collectibles.length; i++) lvl.collectibles[i].respawnTime--;
+                        }
+
+                        // offset shit
+                        offX = player.pixelsX() - getWidth() / 2;
+                        offY = player.pixelsY() - getHeight() / 2;
+
+                        if (offX < 0) offX = 0;
+                        if (offX > Level.LEVEL_SIZE * 8 - getWidth()) offX = Level.LEVEL_SIZE * 8 - getWidth();
+
+                        if (offY < 0) offY = 0;
+                        if (offY > Level.LEVEL_SIZE * 8 - getHeight()) offY = Level.LEVEL_SIZE * 8 - getHeight();
                     }
-
-                    // offset shit
-                    offX = player.pixelsX() - getWidth() / 2;
-                    offY = player.pixelsY() - getHeight() / 2;
-
-                    if (offX < 0) offX = 0;
-                    if (offX > Level.LEVEL_SIZE * 8 - getWidth()) offX = Level.LEVEL_SIZE * 8 - getWidth();
-
-                    if (offY < 0) offY = 0;
-                    if (offY > Level.LEVEL_SIZE * 8 - getHeight()) offY = Level.LEVEL_SIZE * 8 - getHeight();
+                } else {
+                    timer.reset();
                 }
 
                 drawStart = System.currentTimeMillis();
@@ -284,27 +332,27 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                             Resources.tinyFont.draw(g, pl.username, x + 4 - pl.usernameWidth / 2, y - height);
                         }
                     }
+                }
 
-                    for (int i = 0; i < bullets.size(); i++) {
-                        Bullet bullet = (Bullet) bullets.elementAt(i);
+                for (int i = 0; i < bullets.size(); i++) {
+                    Bullet bullet = (Bullet) bullets.elementAt(i);
 
-                        int x = bullet.pixelsX() - offX;
-                        int y = bullet.pixelsY() - offY;
+                    int x = bullet.pixelsX() - offX;
+                    int y = bullet.pixelsY() - offY;
 
-                        if (x >= -8 && x < getWidth() && y > -6 && y < getHeight()) {
-                            g.drawRegion(Resources.spritesheet, 0, 20, 3, 1, 0, x, y, Graphics.TOP | Graphics.LEFT);
-                        }
+                    if (x >= -8 && x < getWidth() && y > -6 && y < getHeight()) {
+                        g.drawRegion(Resources.spritesheet, 0, 20, 3, 1, 0, x, y, Graphics.TOP | Graphics.LEFT);
                     }
+                }
 
-                    for (int i = 0; i < grenades.size(); i++) {
-                        Grenade grenade = (Grenade) grenades.elementAt(i);
+                for (int i = 0; i < grenades.size(); i++) {
+                    Grenade grenade = (Grenade) grenades.elementAt(i);
 
-                        int x = grenade.pixelsX() - offX;
-                        int y = grenade.pixelsY() - offY;
+                    int x = grenade.pixelsX() - offX;
+                    int y = grenade.pixelsY() - offY;
 
-                        if (x >= -6 && x < getWidth() && y > -6 && y < getHeight()) {
-                            g.drawRegion(Resources.spritesheet,  11, 32, 5, 5, 0, x, y, Graphics.TOP | Graphics.LEFT);
-                        }
+                    if (x >= -6 && x < getWidth() && y > -6 && y < getHeight()) {
+                        g.drawRegion(Resources.spritesheet,  11, 32, 5, 5, 0, x, y, Graphics.TOP | Graphics.LEFT);
                     }
                 }
 
@@ -327,6 +375,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
                     if (player.reloadTimes[player.weapon] > 0) {
                         Resources.defaultFont.draw(g, "RELOADING... ", 0, 12);
+                    }
+
+                    if (!checkedChat && System.currentTimeMillis() - lastMsgTime < 2000) {
+                        Resources.defaultFont.draw(g, "NEW MESSAGE", 0, 23);
                     }
 
                     int inner = player.hp > 60 ? 0x00E430 : player.hp > 25 ? 0xFFA100 : 0xE62937;
@@ -378,29 +430,36 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 Resources.tinyFont.draw(g, debugText, 0, 35);
             }
 
+            int lineHeight = Resources.tinyFont.getLineHeight();
+
             if (screen != SCREEN_NONE) {
                 g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
-                int lineHeight = Resources.tinyFont.getLineHeight();
+
+                Resources.tinyFont.drawAligned(g, "Back", getWidth(), getHeight() - lineHeight, BMFont.RIGHT);
 
                 switch (screen) {
                     case SCREEN_PAUSE:
                         drawScreen(PAUSED_CHOICES, pauseChoice);
-                        Resources.tinyFont.draw(g, "2: Up  8: Down  5: Select", 0, getHeight() - lineHeight);
+                        Resources.tinyFont.drawAligned(g, "Select", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
                         drawLeaderboard(90, false);
                         break;
                     case SCREEN_CHAT:
+                        checkedChat = true;
+
                         int y = getHeight() - CHAT_PADDING - chatLines * lineHeight;
 
                         if (y < CHAT_PADDING) y = CHAT_PADDING;
 
                         Resources.tinyFont.draw(g, chatRenderText, CHAT_PADDING, y);
-                        Resources.tinyFont.draw(g, "5: Write  0: Back", 0, getHeight() - lineHeight);
+                        Resources.tinyFont.drawAligned(g, "Send", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
                         break;
                     case SCREEN_SETTINGS:
                         drawScreen(SETTINGS_CHOICES, settingChoice);
-                        Resources.tinyFont.draw(g, "2: Up  8: Down  5: Change", 0, getHeight() - lineHeight);
+                        Resources.tinyFont.drawAligned(g, "Change", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
                         break;
                 }
+            } else {
+                Resources.tinyFont.drawAligned(g, "Pause", getWidth(), getHeight() - lineHeight, BMFont.RIGHT);
             }
 
             long flushStart = System.currentTimeMillis();
@@ -566,6 +625,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         if (line.length() > 0) appendChatLine(line.toString());
 
         chatRenderText = chatText.toString();
+        checkedChat = false;
+        lastMsgTime = System.currentTimeMillis();
     }
 
     private void appendChatLine(String line) {
@@ -699,7 +760,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     private void tickPlayer() {
         // scary code
-        if (inputClimbUp || inputClimbDown) {
+        if (inputClimbUpJump || inputClimbDown) {
             boolean isLadderAbove = false;
 
             if (Level.BLOCK_LADDER == lvl.getBlockFG((int)player.x, (int)player.y - 1)) {
@@ -726,16 +787,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
             if (isLadderAbove || isLadderUnder) {
                 player.onLadder = true;
-                player.speedY = inputClimbUp ? -0.2f : 0.2f;
-            }
-//            else if (player.onLadder) {
-//                player.onLadder = false;
-//                player.speedY = inputClimbUp ? -0.3f : 0.3f;
-//            }
-        }
-
-        if (inputJump) {
-            if (player.coyoteTime > 0) {
+                player.speedY = inputClimbUpJump ? -0.2f : 0.2f;
+            } else if (player.coyoteTime > 0 && inputClimbUpJump) {
                 player.speedY = -0.3f;
                 player.coyoteTime = 0;
             } else if (player.onLadder) {
@@ -795,9 +848,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 Bullet bullet = new Bullet();
                 bullet.x = player.x;
                 bullet.y = player.y;
-                bullet.angle = (float) player.angle;
-                bullet.speedY = (float) Math.sin(player.angle) * 0.6f;
-                bullet.speedX = (float) Math.cos(player.angle) * 0.6f;
+                bullet.speedY = (float) Math.sin(player.angle) * BULLET_SPEED[player.weapon];
+                bullet.speedX = (float) Math.cos(player.angle) * BULLET_SPEED[player.weapon];
                 bullet.weaponId = player.weapon;
                 bullet.id = bullets.size();
                 bullet.ownerId = player.id;
@@ -815,10 +867,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 Grenade grenade = new Grenade();
                 grenade.x = player.x + 0.5f;
                 grenade.y = player.y + 0.5f;
-                grenade.speedY = (float) Math.sin(player.angle) * 0.7f;
-                grenade.speedX = (float) Math.cos(player.angle) * 0.7f;
+                grenade.speedY = (float) Math.sin(player.angle) * GRENADE_SPEED;
+                grenade.speedX = (float) Math.cos(player.angle) * GRENADE_SPEED;
                 grenade.id = grenades.size();
-                grenade.lifeTime = 125;
+                grenade.lifeTime = GRENADE_LIFETIME;
 
                 addGrenade(grenade);
             }
@@ -833,6 +885,49 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         float prevSpeedY = player.speedY;
 
         lvl.moveEntity(player, 1.f, 1.f);
+
+        if (multiplayer == null && lvl.collectibles != null) {
+            for (int i = 0; i < lvl.collectibles.length; i++) {
+                Level.Collectible coll = lvl.collectibles[i];
+
+                if (coll.respawnTime > 0) continue;
+
+                int dx = player.pixelsX() - coll.x;
+                int dy = player.pixelsY() - coll.y;
+
+                if (dx * dx + dy * dy < 8) {
+                    switch (coll.type) {
+                        case Level.COLLECTIBLE_SHOTGUN:
+                            if (!player.weapons[1]) {
+                                player.weapons[1] = true;
+                                coll.respawnTime = 600;
+                            }
+                            break;
+
+                        case Level.COLLECTIBLE_SNIPER:
+                            if (!player.weapons[2]) {
+                                player.weapons[2] = true;
+                                coll.respawnTime = 600;
+                            }
+                            break;
+
+                        case Level.COLLECTIBLE_MEDKIT:
+                            if (player.hp < 100) {
+                                player.hp += 15;
+                                if (player.hp > 100) player.hp = 100;
+                                coll.respawnTime = 600;
+                            }
+                            break;
+                        case Level.COLLECTIBLE_GRENADE:
+                            if (!player.grenade) {
+                                player.grenade = true;
+                                coll.respawnTime = 600;
+                            }
+                            break;
+                    }
+                }
+            }
+        }
 
         player.onGround = prevSpeedY != player.speedY && prevSpeedY > 0;
 
@@ -859,15 +954,16 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     }
 
     private void updateKeys(int keyCode, boolean pressed) {
-        if (keyCode == KEY_NUM2) inputClimbUp = pressed;
-        else if (getGameAction(keyCode) == UP) inputJump = pressed;
+        int action = getGameAction(keyCode);
 
-        if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) inputShoot = pressed;
-        if (keyCode == KEY_NUM9) inputGrenade = pressed;
+        if (keyCode == KEY_NUM2 || action == UP) inputClimbUpJump = pressed;
 
-        if (keyCode == KEY_NUM8) inputClimbDown = pressed;
-        if (keyCode == KEY_NUM4 || getGameAction(keyCode) == LEFT) inputLeft = pressed;
-        if (keyCode == KEY_NUM6 || getGameAction(keyCode) == RIGHT) inputRight = pressed;
+        if (keyCode == KEY_NUM5 || action == FIRE) inputShoot = pressed;
+        if (keyCode == KEY_NUM9 || action == GAME_A) inputGrenade = pressed;
+
+        if (keyCode == KEY_NUM8 || action == DOWN) inputClimbDown = pressed;
+        if (keyCode == KEY_NUM4 || action == LEFT) inputLeft = pressed;
+        if (keyCode == KEY_NUM6 || action == RIGHT) inputRight = pressed;
 
         if (keyCode == KEY_NUM1) inputRotateLeft = pressed;
         if (keyCode == KEY_NUM3) inputRotateRight = pressed;
@@ -876,11 +972,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private void resetKeys() {
         inputLeft = false;
         inputRight = false;
-        inputJump = false;
         inputRotateLeft = false;
         inputRotateRight = false;
         inputClimbDown = false;
-        inputClimbUp = false;
+        inputClimbUpJump = false;
         inputShoot = false;
         inputGrenade = false;
     }
@@ -910,12 +1005,16 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     }
 
     protected void keyPressed(int keyCode) {
+        int action = getGameAction(keyCode);
+
         if (player != null && player.isDied && screen == SCREEN_NONE) {
             if (keyCode == KEY_NUM0) {
                 if (multiplayer != null) {
                     multiplayer.sendRevive();
                 } else {
                     player.isDied = false;
+                    player.hp = 100;
+                    player.respawn(lvl);
                 }
 
                 return;
@@ -931,7 +1030,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         if (screen != SCREEN_NONE) {
             switch (screen) {
                 case SCREEN_PAUSE: {
-                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) {
+                    if (keyCode == KEY_NUM5 || action == FIRE) {
                         switch (pauseChoice) {
                             case 0: screen = SCREEN_NONE; break;
                             case 1: if (multiplayer != null) screen = SCREEN_CHAT; break;
@@ -946,12 +1045,12 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         return;
                     }
 
-                    if (keyCode == KEY_NUM2 || getGameAction(keyCode) == UP) pauseChoice = (pauseChoice - 1) % PAUSED_CHOICES.length;
-                    if (keyCode == KEY_NUM8 || getGameAction(keyCode) == DOWN) pauseChoice = (pauseChoice + 1) % PAUSED_CHOICES.length;
+                    if (keyCode == KEY_NUM2 || action == UP) pauseChoice = (pauseChoice - 1) % PAUSED_CHOICES.length;
+                    if (keyCode == KEY_NUM8 || action == DOWN) pauseChoice = (pauseChoice + 1) % PAUSED_CHOICES.length;
 
                     if (keyCode == KEY_NUM0) {
                         pauseChoice = 0;
-                        screen = SCREEN_PAUSE;
+                        screen = SCREEN_NONE;
                     }
 
                     if (pauseChoice < 0) pauseChoice = PAUSED_CHOICES.length - 1;
@@ -965,7 +1064,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         fromDeathScreen = false;
                     }
 
-                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) {
+                    if (keyCode == KEY_NUM5 || action == FIRE) {
                         shootan.instance.display.setCurrent(chatBox);
                         return;
                     }
@@ -974,12 +1073,12 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
                 case SCREEN_SETTINGS: {
                     if (keyCode == KEY_NUM0) screen = SCREEN_PAUSE;
-                    if (keyCode == KEY_NUM2 || getGameAction(keyCode) == UP) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
-                    if (keyCode == KEY_NUM8 || getGameAction(keyCode) == DOWN) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
+                    if (keyCode == KEY_NUM2 || action == UP) settingChoice = (settingChoice - 1) % SETTINGS_CHOICES.length;
+                    if (keyCode == KEY_NUM8 || action == DOWN) settingChoice = (settingChoice + 1) % SETTINGS_CHOICES.length;
 
                     if (settingChoice < 0) settingChoice = SETTINGS_CHOICES.length - 1;
 
-                    if (keyCode == KEY_NUM5 || getGameAction(keyCode) == FIRE) changeSetting(settingChoice);
+                    if (keyCode == KEY_NUM5 || action == FIRE) changeSetting(settingChoice);
 
                     break;
                 }
@@ -1016,6 +1115,17 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     }
 
     public void commandAction(Command command, Displayable displayable) {
+        if (command == pauseMenu) {
+            switch (screen) {
+                case SCREEN_SETTINGS:
+                case SCREEN_CHAT:
+                case SCREEN_NONE: screen = SCREEN_PAUSE; break;
+                case SCREEN_PAUSE: screen = SCREEN_NONE; break;
+            }
+
+            return;
+        }
+
         if (command == chatSend) {
             String msg = filterChatMessage(chatBox.getString());
 

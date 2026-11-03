@@ -16,7 +16,7 @@ The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
 - [ ] cute menus
 - [x] chat
 - [x] end round screen
-- [ ] pause menu
+- [x] pause menu
 - [ ] code review and optimization
 - [ ] maybe scale textures by 2 (because on 240x320 screen it looks so tiny)
 - [ ] make space used more effectively in [spritesheet](./res/spritesheet.png)

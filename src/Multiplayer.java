@@ -305,7 +305,8 @@ public class Multiplayer {
                     bullet.y = Utils.readFloatLE(in);
                     bullet.speedX = Utils.readFloatLE(in);
                     bullet.speedY = Utils.readFloatLE(in);
-                    bullet.angle = (float) Math.toDegrees(Utils.readFloatLE(in));
+//                    bullet.angle = (float) Math.toDegrees(Utils.readFloatLE(in));
+                    float angle = Utils.readFloatLE(in);
 
                     game.addBullet(bullet);
                     break;

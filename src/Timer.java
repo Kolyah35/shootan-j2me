@@ -76,4 +76,10 @@ public class Timer {
         this.passedTime -= this.ticks;
         this.partialTicks = this.passedTime;
     }
+
+    public void reset() {
+        this.ticks = 0;
+        this.passedTime = 0;
+        this.lastTime = System.currentTimeMillis();
+    }
 }
