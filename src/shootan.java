@@ -6,6 +6,7 @@ public class shootan extends MIDlet implements CommandListener {
     static shootan instance;
     public Display display = null;
     private static boolean started;
+    GameSettings settings;
 
     Form mainMenu;
     Random rand = new Random();
@@ -31,6 +32,12 @@ public class shootan extends MIDlet implements CommandListener {
         instance = this;
         display = Display.getDisplay(this);
 
+        settings = GameSettings.load();
+        if (settings.username != null) username.setString(settings.username);
+        hostname.setString(settings.hostname);
+        hatList.setSelectedIndex(settings.hat, true);
+        selectedHat.setText("Selected hat: " + hatList.getString(settings.hat));
+
         hatList.setSelectCommand(select);
         hatList.setCommandListener(this);
 
@@ -50,6 +57,32 @@ public class shootan extends MIDlet implements CommandListener {
     }
 
     protected void destroyApp(boolean unconditional) {
+        if (settings != null) {
+            settings.username = username.getString();
+            settings.hostname = hostname.getString();
+            settings.hat = (byte) hatList.getSelectedIndex();
+            try { settings.save(); }
+            catch (Exception e) { System.out.println("RMS error: " + e); }
+        }
+    }
+
+    public void saveSettings() {
+        try {
+            settings.save();
+        } catch (Exception e) {
+            System.out.println("RMS error: " + e);
+            Displayable old = display.getCurrent();
+            Alert alert = new Alert("Save error", e.toString(), null, AlertType.WARNING);
+            alert.setTimeout(3500);
+            display.setCurrent(alert, old == null ? mainMenu : old);
+        }
+    }
+
+    private void saveProfile() {
+        settings.username = username.getString();
+        settings.hostname = hostname.getString();
+        settings.hat = (byte) hatList.getSelectedIndex();
+        saveSettings();
     }
 
     public void commandAction(Command command, Displayable displayable) {
@@ -57,11 +90,13 @@ public class shootan extends MIDlet implements CommandListener {
 
         if (displayable == hatList) {
             selectedHat.setText("Selected hat: " + hatList.getString(hatList.getSelectedIndex()));
+            saveProfile();
             display.setCurrent(mainMenu);
             return;
         }
 
         if (command == backToMenu) {
+            saveProfile();
             display.setCurrent(mainMenu);
             return;
         }
@@ -71,14 +106,16 @@ public class shootan extends MIDlet implements CommandListener {
             return;
         }
 
+        if (command != join && command != offline && command != reconnect) return;
+
         try {
+            saveProfile();
             if (command == join || command == reconnect) {
                 offlineMode = false;
             }
 
             if (command == offline) {
                 offlineMode = true;
-                display.setCurrent(new Alert("Offline mode is not ready yet and made just for performance test"), mainMenu);
             }
 
             Game game = new Game(username.getString(), hostname.getString(), offlineMode, (byte) hatList.getSelectedIndex());

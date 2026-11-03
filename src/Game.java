@@ -19,17 +19,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     public static final int SCREEN_PAUSE = 1;
     public static final int SCREEN_CHAT = 2;
     public static final int SCREEN_SETTINGS = 3;
-
-    boolean inputClimbUp = false;
-    boolean inputClimbDown = false;
-    boolean inputJump = false;
-    boolean inputLeft = false;
-    boolean inputRight = false;
-    boolean inputRotateLeft = false;
-    boolean inputRotateRight = false;
-    boolean inputShoot = false;
-    boolean inputGrenade = false;
-
     long ticks = 0;
 
     public Multiplayer multiplayer = null;
@@ -42,7 +31,17 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private boolean debug = false;
     private boolean syncAimDirection = true;
     private int settingChoice = 0;
-    private static String[] SETTINGS_CHOICES = new String[]{"Target FPS: 30 FPS", "Debug stats: NO", "Sync aim with direction: YES"};
+    private static final String[] SETTINGS_CHOICES = new String[]{"Target FPS: 30 FPS", "Debug stats: NO", "Sync aim with direction: YES"};
+
+    private boolean inputClimbUp = false;
+    private boolean inputClimbDown = false;
+    private boolean inputJump = false;
+    private boolean inputLeft = false;
+    private boolean inputRight = false;
+    private boolean inputRotateLeft = false;
+    private boolean inputRotateRight = false;
+    private boolean inputShoot = false;
+    private boolean inputGrenade = false;
 
     public boolean shouldClose = false;
     public int screen = SCREEN_NONE;
@@ -106,7 +105,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     // if not zero then round end and leaderboard screen pops out
     private int winnerId = 0;
 
-    private Image darkOverlay;
     private Scorable[] leaderboard;
 
     private static final String[] PAUSED_CHOICES = new String[]{"Resume", "Open chat", "Settings", "Quit to menu"};
@@ -115,7 +113,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     private final TextBox chatBox = new TextBox("Write a message", null, 255, TextField.ANY);
     private final Command chatSend = new Command("Send", Command.OK, 1);
-    private final Command chatBack = new Command("Back", Command.CANCEL, 2);
 
     private static final int CHAT_PADDING = 6;
     private static final int CHAT_MAX_MESSAGE = 512;
@@ -127,6 +124,14 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     public Game(String playerName, String host, boolean offline, byte hatId) throws IOException {
         super(false);
 
+        GameSettings saved = shootan.instance.settings;
+        targetFpsChoice = saved.targetFpsChoice;
+        debug = saved.debug;
+        syncAimDirection = saved.syncAimDirection;
+        SETTINGS_CHOICES[0] = "Target FPS: " + FPS_CHOICES[targetFpsChoice] + " FPS";
+        SETTINGS_CHOICES[1] = "Debug stats: " + (debug ? "YES" : "NO");
+        SETTINGS_CHOICES[2] = "Sync aim with direction: " + (syncAimDirection ? "YES" : "NO");
+
         if (!offline) {
             multiplayer = new Multiplayer(this, host);
         }
@@ -135,8 +140,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         player.hat = (byte) hatId;
 
         chatBox.setInitialInputMode("MIDP_LOWERCASE_LATIN");
-        chatBox.addCommand(chatSend);
-        chatBox.addCommand(chatBack);
+        chatBox.addCommand(new Command("Back", Command.CANCEL, 2));
         chatBox.setCommandListener(this);
     }
 
@@ -157,7 +161,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             pixels[i] = color;
         }
 
-        darkOverlay = Image.createRGBImage(pixels, getWidth(), getHeight(), true);
+        Image darkOverlay = Image.createRGBImage(pixels, getWidth(), getHeight(), true);
 
         // offline mode
         if (multiplayer == null) {
@@ -174,14 +178,23 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
         player.updateAim();
 
+        String debugText = "";
+        long lastDebugUpdate = -1000;
+        int maxDrawMs = 0;
+        int maxFlushMs = 0;
+        int maxNetMs = 0;
+
         while (!shouldClose) {
             long frameStart = System.currentTimeMillis();
 
             if (multiplayer != null) multiplayer.update();
-
+            int netMs = (int)(System.currentTimeMillis() - frameStart);
+            
             // draw bg
             g.setColor(0x040432);
             g.fillRect(0, 0, this.getWidth(), this.getHeight());
+
+            long drawStart = 0;
 
             if (player != null && lvl != null) {
                 if (multiplayer != null || screen == SCREEN_NONE) {
@@ -245,6 +258,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                     if (offY > Level.LEVEL_SIZE * 8 - getHeight()) offY = Level.LEVEL_SIZE * 8 - getHeight();
                 }
 
+                drawStart = System.currentTimeMillis();
                 lvl.render(g, offX, offY, getWidth(), getHeight());
 
                 if (multiplayer != null) {
@@ -358,8 +372,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 }
             }
 
+            int drawMs = (int)(System.currentTimeMillis() - drawStart);
+
             if (timer != null && debug) {
-                Resources.tinyFont.draw(g, "fps: " + timer.fps + "\nframe: " + lastElapsed + " ms\nfree heap: " + Runtime.getRuntime().freeMemory() / 1024 + " KB", 0, 35);
+                Resources.tinyFont.draw(g, debugText, 0, 35);
             }
 
             if (screen != SCREEN_NONE) {
@@ -373,7 +389,6 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         drawLeaderboard(90, false);
                         break;
                     case SCREEN_CHAT:
-
                         int y = getHeight() - CHAT_PADDING - chatLines * lineHeight;
 
                         if (y < CHAT_PADDING) y = CHAT_PADDING;
@@ -388,11 +403,28 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 }
             }
 
+            long flushStart = System.currentTimeMillis();
             flushGraphics();
+            int flushMs = (int)(System.currentTimeMillis() - flushStart);
 
             long elapsed = System.currentTimeMillis() - frameStart;
             lastElapsed = elapsed;
             long sleep = 1000 / FPS_CHOICES[targetFpsChoice] - elapsed;
+
+            if (System.currentTimeMillis() - lastDebugUpdate >= 1000 && timer != null) {
+                maxNetMs = Math.max(maxNetMs, netMs);
+                maxDrawMs = Math.max(maxDrawMs, drawMs);
+                maxFlushMs = Math.max(maxFlushMs, flushMs);
+
+                debugText =
+                            "fps: " + timer.fps + "\n" +
+                            "frame: " + lastElapsed + " ms\n" +
+                            "net: " + netMs + "ms max: " + maxNetMs + " ms\n" +
+                            "draw: " + drawMs + "ms max: " + maxDrawMs + " ms\n" +
+                            "flush: " + flushMs + "ms max: " + maxFlushMs + " ms\n" +
+                            "free heap: " + Runtime.getRuntime().freeMemory() / 1024 + " KB";
+                lastDebugUpdate = System.currentTimeMillis();
+            }
 
             if (sleep > 0) {
                 try { Thread.sleep(sleep); }
@@ -868,6 +900,13 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 SETTINGS_CHOICES[2] = "Sync aim with direction: " + (syncAimDirection ? "YES" : "NO");
                 break;
         }
+
+
+        GameSettings saved = shootan.instance.settings;
+        saved.targetFpsChoice = targetFpsChoice;
+        saved.debug = debug;
+        saved.syncAimDirection = syncAimDirection;
+        shootan.instance.saveSettings();
     }
 
     protected void keyPressed(int keyCode) {
