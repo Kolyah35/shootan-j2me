@@ -22,10 +22,10 @@ The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
 - [ ] make space used more effectively in [spritesheet](./res/spritesheet.png)
 - [ ] pspkvm support
 
-<img src="./screenshot.png" width="49%">
-<img src="./screenshot2.png" width="49%">
-<img src="./screenshot3.png" width="49%">
-<img src="./screenshot4.png" width="49%">
+<img src="./screenshot.png" width="48%">
+<img src="./screenshot2.png" width="48%">
+<img src="./screenshot3.png" width="48%">
+<img src="./screenshot4.png" width="48%">
 
 # Resources used
 - [shootan](https://github.com/InviseDivine/shootan) - the base game
