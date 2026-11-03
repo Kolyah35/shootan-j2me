@@ -545,6 +545,10 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
 
     public void roundBegin() {
         this.winnerId = 0;
+
+        if (multiplayer != null && player.isDied) {
+            multiplayer.sendRevive();
+        }
     }
 
     public void addChatMessage(String message) {
