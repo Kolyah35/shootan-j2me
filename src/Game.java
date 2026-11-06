@@ -315,7 +315,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                         int x = pl.x - offX;
                         int y = pl.y - offY;
 
-                        if (x >= 0 && x < getWidth() && y > 0 && y < getHeight()) {
+                        if (x >= -8 && x < getWidth() && y >= -8 && y < getHeight()) {
                             g.drawRegion(Resources.spritesheet, 32, 8, 8, 8, pl.transform, x, y, Graphics.TOP | Graphics.LEFT);
                             drawWeapon(pl.weapon, pl.transform, x + 4, y, false);
 
@@ -323,9 +323,12 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                                 drawHat(x, y, pl.transform, pl.hat);
                             }
 
-                            int height = Resources.defaultFont.getLineHeight();
+                            int height = Resources.tiny.lineHeight;
 
-                            Resources.tinyFont.draw(g, pl.username, x + 4 - pl.usernameWidth / 2, y - height);
+                            Resources.tiny.draw(g, pl.username, x + 4 - pl.usernameWidth / 2, y - height - 2);
+
+                            Image hpAtlas = pl.hp > 60 ? Resources.greenDigits : pl.hp > 25 ? Resources.orangeDigits : Resources.redDigits;
+                            Resources.digits.drawAlignedAtlas(g, String.valueOf(pl.hp), x + 4, y - height * 2, BinaryFont.CENTER, hpAtlas);
                         }
                     }
                 }
@@ -370,11 +373,11 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                     g.drawRegion(Resources.spritesheet, 54, 32, 5, 5, 0, cx + (int)(20 * player.aimCos), cy + (int)(20 * player.aimSin), Graphics.HCENTER | Graphics.VCENTER);
 
                     if (player.reloadTimes[player.weapon] > 0) {
-                        Resources.defaultFont.draw(g, "RELOADING... ", 0, 12);
+                        Resources.font.draw(g, "RELOADING... ", 0, 12);
                     }
 
                     if (!checkedChat && System.currentTimeMillis() - lastMsgTime < 2000) {
-                        Resources.defaultFont.draw(g, "NEW MESSAGE", 0, 23);
+                        Resources.font.draw(g, "NEW MESSAGE", 0, 23);
                     }
 
                     int inner = player.hp > 60 ? 0x00E430 : player.hp > 25 ? 0xFFA100 : 0xE62937;
@@ -389,8 +392,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                     g.setColor(inner);
                     g.fillRect(2, 2, (int)(getWidth() * (player.hp / 100.f)) - 4, 7);
 
-                    String hp = "HP: " + player.hp;
-                    Resources.defaultFont.draw(g, hp, (getWidth() - Resources.defaultFont.stringWidth(hp)) / 2, -3);
+                    Resources.font.drawAligned(g, "HP: " + player.hp, getWidth() / 2, -3, BinaryFont.CENTER);
 
                     drawWeapon((byte) 0, 0, getWidth() - 14, 13, !player.weapons[0]);
                     drawWeapon((byte) 1, 0, getWidth() - 24, 22, !player.weapons[1]);
@@ -404,17 +406,17 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
                 } else if (winnerId == 0) {
                     g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
 
-                    Resources.defaultFont.drawAligned(g, "You died!\nScore: " + player.score + "\nPress 0 to revive\nPress 5 to open chat",
+                    Resources.font.drawAligned(g, "You died!\nScore: " + player.score + "\nPress 0 to revive\nPress 5 to open chat",
                             getWidth() / 2,
-                            getHeight() / 2 - 30, BMFont.CENTER
+                            getHeight() / 2 - 30, BinaryFont.CENTER
                     );
                 }
 
                 if (winnerId != 0) {
                     g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
 
-                    Resources.defaultFont.drawAligned(g, "ROUND END", getWidth() / 2, 10, BMFont.CENTER);
-                    Resources.defaultFont.drawAligned(g, "WAITING FOR ROUND BEGIN", getWidth() / 2, getHeight() - 20, BMFont.CENTER);
+                    Resources.font.drawAligned(g, "ROUND END", getWidth() / 2, 10, BinaryFont.CENTER);
+                    Resources.font.drawAligned(g, "WAITING FOR ROUND BEGIN", getWidth() / 2, getHeight() - 20, BinaryFont.CENTER);
 
                     drawLeaderboard(30, true);
                 }
@@ -423,39 +425,39 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
             int drawMs = (int)(System.currentTimeMillis() - drawStart);
 
             if (timer != null && debug) {
-                Resources.tinyFont.draw(g, debugText, 0, 35);
+                Resources.tiny.draw(g, debugText, 0, 35);
             }
 
-            int lineHeight = Resources.tinyFont.getLineHeight();
+            int lineHeight = Resources.tiny.lineHeight;
 
             if (screen != SCREEN_NONE) {
                 g.drawImage(darkOverlay, 0, 0, Graphics.TOP | Graphics.LEFT);
 
-                Resources.tinyFont.drawAligned(g, "Back", getWidth(), getHeight() - lineHeight, BMFont.RIGHT);
+                Resources.tiny.drawAligned(g, "Back", getWidth(), getHeight() - lineHeight, BinaryFont.RIGHT);
 
                 switch (screen) {
                     case SCREEN_PAUSE:
                         drawScreen(PAUSED_CHOICES, pauseChoice);
-                        Resources.tinyFont.drawAligned(g, "Select", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
+                        Resources.tiny.drawAligned(g, "Select", getWidth() / 2, getHeight() - lineHeight, BinaryFont.CENTER);
                         drawLeaderboard(90, false);
                         break;
                     case SCREEN_CHAT:
                         checkedChat = true;
 
-                        int y = getHeight() - CHAT_PADDING - chatLines * lineHeight;
+                        int y = getHeight() - Resources.tiny.lineHeight - chatLines * lineHeight;
 
                         if (y < CHAT_PADDING) y = CHAT_PADDING;
 
-                        Resources.tinyFont.draw(g, chatRenderText, CHAT_PADDING, y);
-                        Resources.tinyFont.drawAligned(g, "Send", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
+                        Resources.tiny.draw(g, chatRenderText, CHAT_PADDING, y);
+                        Resources.tiny.drawAligned(g, "Send", getWidth() / 2, getHeight() - lineHeight, BinaryFont.CENTER);
                         break;
                     case SCREEN_SETTINGS:
                         drawScreen(SETTINGS_CHOICES, settingChoice);
-                        Resources.tinyFont.drawAligned(g, "Change", getWidth() / 2, getHeight() - lineHeight, BMFont.CENTER);
+                        Resources.tiny.drawAligned(g, "Change", getWidth() / 2, getHeight() - lineHeight, BinaryFont.CENTER);
                         break;
                 }
             } else {
-                Resources.tinyFont.drawAligned(g, "Pause", getWidth(), getHeight() - lineHeight, BMFont.RIGHT);
+                Resources.tiny.drawAligned(g, "Pause", getWidth(), getHeight() - lineHeight, BinaryFont.RIGHT);
             }
 
             long flushStart = System.currentTimeMillis();
@@ -554,7 +556,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     public void addChatMessage(String message) {
         if (message == null || message.length() == 0) return;
 
-        BMFont font = Resources.tinyFont;
+        BinaryFont font = Resources.tiny;
         int maxWidth = getWidth() - CHAT_PADDING * 2 - 4;
 
         if (maxWidth <= 0) return;
@@ -639,7 +641,7 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         chatText.append(line);
         chatLines++;
 
-        int maxLines = (getHeight() - CHAT_PADDING * 2) / Resources.tinyFont.getLineHeight();
+        int maxLines = (getHeight() - CHAT_PADDING * 2) / Resources.tiny.lineHeight;
 
         if (maxLines < 1) maxLines = 1;
 
@@ -738,11 +740,11 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
     private void drawScreen(String[] choices, int choice) {
         for (int i = 0; i < choices.length; i++) {
             int y = 20 + 15 * i;
-            Resources.defaultFont.draw(g, choices[i], 10, y);
+            Resources.font.draw(g, choices[i], 10, y);
 
             if (i == choice) {
                 g.setColor(0xFFFFFF);
-                g.drawLine(10, y + 14, 10 + Resources.defaultFont.stringWidth(choices[i]), y + 14);
+                g.drawLine(10, y + 14, 10 + Resources.font.stringWidth(choices[i]), y + 14);
             }
         }
     }
@@ -757,8 +759,8 @@ public class Game extends GameCanvas implements Runnable, CommandListener {
         }
 
         for (int i = 0; i < leaderboard.length; i++) {
-            Resources.defaultFont.draw(g, leaderboard[i].getUsername(), x, y + 12 * i);
-            Resources.defaultFont.drawAligned(g, String.valueOf(leaderboard[i].getScore()), getWidth() - 5, y + 12 * i, BMFont.RIGHT);
+            Resources.font.draw(g, leaderboard[i].getUsername(), x, y + 12 * i);
+            Resources.font.drawAligned(g, String.valueOf(leaderboard[i].getScore()), getWidth() - 5, y + 12 * i, BinaryFont.RIGHT);
         }
     }
 

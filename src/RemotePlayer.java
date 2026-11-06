@@ -22,7 +22,7 @@ public class RemotePlayer implements Scorable {
         this.hat = hat;
         this.weapon = weapon;
         this.isDied = isDied;
-        this.usernameWidth = Resources.tinyFont.stringWidth(username);
+        this.usernameWidth = Resources.tiny.stringWidth(username);
     }
 
     public int getScore() { return this.score; }

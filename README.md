@@ -7,8 +7,6 @@ This is a silly j2me port of [shootan](https://github.com/InviseDivine/shootan) 
 The game is now **playable** on a real device (tested on Nokia E65).
 99% of game protocol is implemented.
 
-The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
-
 ## TODO
 - [x] leaderboards
 - [ ] rewrite font rendering
@@ -33,4 +31,4 @@ The BMFont Binary rendering is vibecoded now but planed to be rewritten by hand.
 - [compress-j2me](https://github.com/igorgatis/compress-j2me) - decompressing levels
 - [rd-132211](https://github.com/thecodeofnotch/rd-132211) - the base game uses timer and AABB from this game
 - [grixel-acme](https://www.dafont.com/es/grixel-acme-9.font) - font that raylib default font inspired on
-- [tiny-font](https://www.ffonts.net/6px-Normal.font) - for player names
+- [tiny-font](https://www.ffonts.net/Sevastopol-Interface-Regular.font) - for player names and chat
