@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 MicroEdition-Configuration: CLDC-1.1
 MicroEdition-Profile: MIDP-2.0
 MIDlet-Vendor: Kolyah35
-MIDlet-Version: 1.0.0
+MIDlet-Version: 1.1.0
 MIDlet-Name: shootan
 MIDlet-1: shootan, /ico.png, shootan
 MIDlet-Description: Fun 2D shooter game.
